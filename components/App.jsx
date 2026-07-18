@@ -898,6 +898,12 @@ const HomeStyle = () => (
 // ─────────────────────────────────────────────
 function CustomerApp({ menu, orders, ordersHistory = [], kitchenOpen, poll, onPlaceOrder, onSubmitRating, onSubmitPollResponse, onOwnerAccess }) {
   const [step, setStep] = useState("home");
+  const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
+  useEffect(() => {
+    const onResize = () => setIsDesktop(window.innerWidth >= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const [cart, setCart] = useState({});
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -1235,36 +1241,48 @@ function CustomerApp({ menu, orders, ordersHistory = [], kitchenOpen, poll, onPl
       </div>
 
       {/* ═══════ SECTION 2 — HERO ═══════ */}
-      <div style={{ maxWidth: 420, margin: "10px auto 0", padding: "0 14px", position: "relative" }}>
-        {/* Reference tiffin illustration, bottom-right */}
-        <img
-          src={REF_SRC}
-          alt=""
-          aria-hidden
-          style={{
-            position: "absolute", bottom: 40, right: -25, width: 135, height: "auto",
-            zIndex: 0, pointerEvents: "none",
-          }}
-        />
+      <div style={{
+        maxWidth: isDesktop ? 980 : 420,
+        margin: "10px auto 0",
+        padding: "0 14px",
+        position: "relative",
+        display: isDesktop ? "grid" : "block",
+        gridTemplateColumns: isDesktop ? "1fr 1fr" : "none",
+        gap: isDesktop ? 40 : 0,
+        alignItems: "center",
+      }}>
+        {/* Background tiffin illustration — mobile only */}
+        {!isDesktop && (
+          <img
+            src={REF_SRC}
+            alt=""
+            aria-hidden
+            style={{
+              position: "absolute", bottom: 40, right: 10, width: 135, height: "auto",
+              zIndex: 0, pointerEvents: "none",
+            }}
+          />
+        )}
 
-        <div style={{ position: "relative", zIndex: 1, paddingTop: 16, paddingBottom: 20, paddingRight: 12 }}>
+        {/* LEFT — text content */}
+        <div style={{ position: "relative", zIndex: 1, paddingTop: isDesktop ? 40 : 16, paddingBottom: 20, paddingRight: isDesktop ? 0 : 12 }}>
           <h1 style={{
             fontFamily: "'Playfair Display', Georgia, serif",
-            fontWeight: 800, fontSize: 22.8, lineHeight: 1.15,
-            color: HC.brown, margin: "0 0 2px", whiteSpace: "nowrap",
+            fontWeight: 800, fontSize: isDesktop ? 38 : 22.8, lineHeight: 1.15,
+            color: HC.brown, margin: "0 0 2px", whiteSpace: isDesktop ? "normal" : "nowrap",
           }}>Ghar Jaisa Khana,</h1>
           <h1 style={{
             fontFamily: "'Playfair Display', Georgia, serif",
-            fontWeight: 800, fontSize: 22.8, lineHeight: 1.15,
-            color: HC.orange, margin: "0 0 14px", whiteSpace: "nowrap",
+            fontWeight: 800, fontSize: isDesktop ? 38 : 22.8, lineHeight: 1.15,
+            color: HC.orange, margin: "0 0 14px", whiteSpace: isDesktop ? "normal" : "nowrap",
           }}>Made Fresh Every Day</h1>
 
-          <div style={{ fontSize: 13.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 14 }}>
+          <div style={{ fontSize: isDesktop ? 16 : 13.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 14 }}>
             Freshly cooked by Sharma Aunty.<br />Delivered hot within your society.
           </div>
 
-          {/* Rating row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          {/* Row 1 — rating pill only */}
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
             <div style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               background: "#fff", borderRadius: 999, padding: "5px 10px",
@@ -1273,7 +1291,10 @@ function CustomerApp({ menu, orders, ordersHistory = [], kitchenOpen, poll, onPl
               <StarDisplay value={5} size={13} color={HC.orange} />
               <span style={{ fontSize: 12, fontWeight: 800, color: HC.brown }}>4.9/5</span>
             </div>
-            <div style={{ width: 1, height: 22, background: HC.dash }} />
+          </div>
+
+          {/* Row 2 — avatars + 500+ customers */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               {["P", "R", "A"].map((ch, i) => (
                 <div key={i} style={{
@@ -1290,16 +1311,32 @@ function CustomerApp({ menu, orders, ordersHistory = [], kitchenOpen, poll, onPl
           </div>
 
           <button onClick={() => setStep("order")} disabled={!kitchenOpen || !menuAvailable} style={{
-            background: "transparent", color: HC.orange, border: `1.5px solid ${HC.orange}`,
-            padding: "10px 22px", borderRadius: 10,
-            fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 15,
+            background: isDesktop ? HC.orange : "transparent",
+            color: isDesktop ? "#fff" : HC.orange,
+            border: `1.5px solid ${HC.orange}`,
+            padding: isDesktop ? "14px 32px" : "10px 22px",
+            borderRadius: 10,
+            fontFamily: "'Nunito', sans-serif", fontWeight: 800,
+            fontSize: isDesktop ? 17 : 15,
             display: "inline-flex", alignItems: "center", gap: 8,
             cursor: (kitchenOpen && menuAvailable) ? "pointer" : "not-allowed",
             opacity: (kitchenOpen && menuAvailable) ? 1 : 0.5,
+            boxShadow: isDesktop ? "0 6px 16px rgba(224,115,26,.32)" : "none",
           }}>
-            <CartIcon s={16} c={HC.orange} /> Order Now
+            <CartIcon s={16} c={isDesktop ? "#fff" : HC.orange} /> Order Now
           </button>
         </div>
+
+        {/* RIGHT — tiffin image (desktop only) */}
+        {isDesktop && (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "20px 0" }}>
+            <img
+              src={REF_SRC}
+              alt="Homely Tiffins tiffin"
+              style={{ width: "64%", maxWidth: 268, height: "auto", display: "block" }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Rating card — returning customer with an unrated delivered order */}
