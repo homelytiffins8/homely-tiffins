@@ -46,7 +46,51 @@ function defaultPlanConfig() {
     raita: "",
     sweet: "",
     prices: { gold: 199, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
+    // Per-variant on/off (owner can hide a plan if stocked out for the day)
+    enabled: { gold: true, standard: true, mini: true, raita: true, salad: true, sweet: true },
+    // Optional photo per variant, stored as a resized/compressed base64 JPEG
+    // data URL. Empty string means "no photo".
+    photos: { gold: "", standard: "", mini: "" },
   };
+}
+
+// Fill in missing fields on a loaded planConfig so older records don't crash.
+// (No-op if the config is already well-formed.)
+function normalisePlanConfig(cfg) {
+  if (!cfg) return cfg;
+  const d = defaultPlanConfig();
+  return {
+    ...cfg,
+    enabled: { ...d.enabled, ...(cfg.enabled || {}) },
+    photos:  { ...d.photos,  ...(cfg.photos  || {}) },
+    prices:  { ...d.prices,  ...(cfg.prices  || {}) },
+  };
+}
+
+// Resize + compress a File to a base64 JPEG data URL suitable for Supabase.
+// Keeps stored images ~50–150 KB each so a full planConfig stays well under
+// Supabase's 5 MB per-key value limit even with three photos.
+function resizeAndCompressImage(file, maxWidth = 700, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const w = Math.max(1, Math.round(img.width  * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("Could not load image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 // Cap stored poll responses so the payload stays small for realtime sync.
@@ -1211,10 +1255,10 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
   // Salad-for-the-day is a Gold/Extras-only ingredient; Standard and Mini use
   // a plain "Standard Salad" so nothing in them changes day-to-day.
   const extraItems = plansAvailable ? [
-    { id: "extra-raita", name: `${planConfig.raita} (Raita of the Day)`, price: planConfig.prices.raita },
-    { id: "extra-salad", name: `${planConfig.salad} (Salad of the Day)`, price: planConfig.prices.salad },
-    { id: "extra-sweet", name: `${planConfig.sweet} (Sweet of the Day)`, price: planConfig.prices.sweet },
-  ] : [];
+    { id: "extra-raita", key: "raita", name: `${planConfig.raita} (Raita of the Day)`, price: planConfig.prices.raita },
+    { id: "extra-salad", key: "salad", name: `${planConfig.salad} (Salad of the Day)`, price: planConfig.prices.salad },
+    { id: "extra-sweet", key: "sweet", name: `${planConfig.sweet} (Sweet of the Day)`, price: planConfig.prices.sweet },
+  ].filter(x => planConfig.enabled?.[x.key] !== false) : [];
 
   // All the ways an item can end up in the cart, combined so cart math/order
   // building can treat them uniformly (see CustomerDetailsModal below).
@@ -1380,52 +1424,67 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
           </div>
 
           {/* ── MEAL PLANS: Homely Gold / Standard / Mini ── */}
-          {plansAvailable && (
+          {plansAvailable && (planConfig.enabled?.gold || planConfig.enabled?.standard || planConfig.enabled?.mini) && (
             <div style={{ marginBottom: 16 }}>
               <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🍽️ Meal Plans</h2>
               <div className="ht-card slide-in" style={{ padding: 0, marginBottom: 10, overflow: "hidden" }}>
-                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold</div>
-                      <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
+                {planConfig.enabled?.gold && (
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.gold && (
+                        <img src={planConfig.photos.gold} alt="Homely Gold" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.gold}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("gold")}>+ Add</button>
                       </div>
                     </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.gold}</div>
-                      <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("gold")}>+ Add</button>
-                    </div>
                   </div>
-                </div>
-                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Standard</div>
-                      <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
+                )}
+                {planConfig.enabled?.standard && (
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.standard && (
+                        <img src={planConfig.photos.standard} alt="Homely Standard" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Standard</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("standard")}>+ Add</button>
                       </div>
                     </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
-                      <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("standard")}>+ Add</button>
-                    </div>
                   </div>
-                </div>
-                <div style={{ padding: "16px 20px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
-                      <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        Choice of 1 sabji + 4 chapatis + standard salad
+                )}
+                {planConfig.enabled?.mini && (
+                  <div style={{ padding: "16px 20px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.mini && (
+                        <img src={planConfig.photos.mini} alt="Homely Mini" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji + 4 chapatis + standard salad
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("mini")}>+ Add</button>
                       </div>
                     </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
-                      <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("mini")}>+ Add</button>
-                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Configured Gold / Standard / Mini selections already in the cart */}
@@ -1451,7 +1510,7 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
           )}
 
           {/* ── TODAY'S EXTRAS: Raita / Salad / Sweet ── */}
-          {plansAvailable && (
+          {plansAvailable && extraItems.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🥗 Today's Extras</h2>
               <div className="ht-card slide-in" style={{ padding: 20 }}>
@@ -2103,7 +2162,7 @@ function MenuEditor({ menu, onSave }) {
 // ─────────────────────────────────────────────
 function PlanMenuEditor({ planConfig, onSave }) {
   const base = planConfig && planConfig.sabjis && planConfig.sabjis.length === 3
-    ? planConfig
+    ? normalisePlanConfig(planConfig)
     : defaultPlanConfig();
   const [sabjis, setSabjis] = useState(base.sabjis.map(s => ({ ...s })));
   const [rice, setRice] = useState(base.rice || "");
@@ -2111,11 +2170,33 @@ function PlanMenuEditor({ planConfig, onSave }) {
   const [raita, setRaita] = useState(base.raita || "");
   const [sweet, setSweet] = useState(base.sweet || "");
   const [prices, setPrices] = useState({ ...defaultPlanConfig().prices, ...(base.prices || {}) });
+  const [enabled, setEnabled] = useState({ ...defaultPlanConfig().enabled, ...(base.enabled || {}) });
+  const [photos, setPhotos] = useState({ ...defaultPlanConfig().photos, ...(base.photos || {}) });
+  const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false });
+  const [uploadErr, setUploadErr] = useState("");
   const [saved, setSaved] = useState(false);
 
   const setSabjiName = (i, name) => setSabjis(prev => prev.map((s, idx) => idx === i ? { ...s, name } : s));
   const setPremium = (i) => setSabjis(prev => prev.map((s, idx) => ({ ...s, premium: idx === i })));
   const setPrice = (key, val) => setPrices(prev => ({ ...prev, [key]: val === "" ? "" : parseInt(val) || 0 }));
+  const toggleEnabled = (key) => setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
+
+  const handlePhotoUpload = async (key, file) => {
+    if (!file) return;
+    setUploadErr("");
+    if (!file.type.startsWith("image/")) { setUploadErr("Please select an image file"); return; }
+    if (file.size > 10 * 1024 * 1024) { setUploadErr("Image too big (max 10 MB)"); return; }
+    setUploading(prev => ({ ...prev, [key]: true }));
+    try {
+      const dataUrl = await resizeAndCompressImage(file);
+      setPhotos(prev => ({ ...prev, [key]: dataUrl }));
+    } catch (err) {
+      setUploadErr("Could not process image");
+    } finally {
+      setUploading(prev => ({ ...prev, [key]: false }));
+    }
+  };
+  const removePhoto = (key) => setPhotos(prev => ({ ...prev, [key]: "" }));
 
   const filledSabjis = sabjis.filter(s => s.name.trim()).length;
   const ready = filledSabjis === 3 && rice.trim() && salad.trim() && raita.trim() && sweet.trim();
@@ -2132,11 +2213,59 @@ function PlanMenuEditor({ planConfig, onSave }) {
         gold: prices.gold || 0, standard: prices.standard || 0, mini: prices.mini || 0,
         raita: prices.raita || 0, salad: prices.salad || 0, sweet: prices.sweet || 0,
       },
+      enabled: {
+        gold: !!enabled.gold, standard: !!enabled.standard, mini: !!enabled.mini,
+        raita: !!enabled.raita, salad: !!enabled.salad, sweet: !!enabled.sweet,
+      },
+      photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "" },
     });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
   const isPublishedToday = planConfig && planConfig.date === todayStr();
+
+  // Reusable per-variant availability & photo row
+  const VariantAvailabilityRow = ({ vkey, label }) => (
+    <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{label}</div>
+          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled[vkey] ? "Available for customers" : "Hidden — stocked out"}</div>
+        </div>
+        {/* Toggle switch */}
+        <button
+          onClick={() => toggleEnabled(vkey)}
+          style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: enabled[vkey] ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
+          aria-label={`Toggle ${label}`}
+        >
+          <span style={{ position: "absolute", top: 3, left: enabled[vkey] ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
+        </button>
+      </div>
+      {/* Photo strip */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {photos[vkey] ? (
+          <img src={photos[vkey]} alt={`${label} preview`} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
+        ) : (
+          <div style={{ width: 60, height: 60, borderRadius: 8, background: C.cream, border: `1px dashed ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLight, fontSize: 20 }}>📷</div>
+        )}
+        <div style={{ flex: 1, display: "flex", gap: 6 }}>
+          <label className="ht-btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
+            {uploading[vkey] ? "Uploading…" : photos[vkey] ? "Change" : "Upload photo"}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              disabled={uploading[vkey]}
+              onChange={e => { handlePhotoUpload(vkey, e.target.files?.[0]); e.target.value = ""; }}
+            />
+          </label>
+          {photos[vkey] && (
+            <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => removePhoto(vkey)}>Remove</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ padding: "20px 0" }}>
@@ -2197,6 +2326,40 @@ function PlanMenuEditor({ planConfig, onSave }) {
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Sweet</label>
             <input className="ht-input" placeholder="e.g. Gulab Jamun" value={sweet} onChange={e => setSweet(e.target.value)} />
           </div>
+        </div>
+      </div>
+
+      {/* Availability + Photos */}
+      <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🎛️ Plan Availability &amp; Photos</h3>
+        <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Turn a plan off if you're out of stock. Photos are optional — customers see them on the plan cards.</p>
+        {uploadErr && <div style={{ background: C.redLight, color: C.red, padding: "6px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{uploadErr}</div>}
+        <VariantAvailabilityRow vkey="gold"     label="✨ Homely Gold" />
+        <VariantAvailabilityRow vkey="standard" label="Homely Standard" />
+        <VariantAvailabilityRow vkey="mini"     label="Homely Mini" />
+
+        {/* Extras (no photo, just toggle) */}
+        <div style={{ marginTop: 6, paddingTop: 14, borderTop: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.inkMid, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 }}>Today's Extras</div>
+          {[
+            { key: "raita", label: "Raita of the Day" },
+            { key: "salad", label: "Salad of the Day" },
+            { key: "sweet", label: "Sweet of the Day" },
+          ].map(x => (
+            <div key={x.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{x.label}</div>
+                <div style={{ fontSize: 11, color: C.inkLight }}>{enabled[x.key] ? "Available for customers" : "Hidden — stocked out"}</div>
+              </div>
+              <button
+                onClick={() => toggleEnabled(x.key)}
+                style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: enabled[x.key] ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
+                aria-label={`Toggle ${x.label}`}
+              >
+                <span style={{ position: "absolute", top: 3, left: enabled[x.key] ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -4250,7 +4413,7 @@ export default function App() {
       ]);
 
       if (m) setMenu(m);
-      if (pc) setPlanConfig(pc);
+      if (pc) setPlanConfig(normalisePlanConfig(pc));
       if (cust) setCustomers(cust);
       if (cred) setCredit(cred);
       if (hist) setOrdersHistory(hist);
@@ -4305,7 +4468,7 @@ export default function App() {
         if (!changedKey) return;
         const newVal = payload.new?.value;
         if (changedKey === KEYS.menu)        setMenu(newVal);
-        if (changedKey === KEYS.planConfig)  setPlanConfig(newVal);
+        if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
         if (changedKey === KEYS.todayOrders) {
           const incoming = newVal || [];
           // Empty payload = authoritative wipe (daily rollover / manual reset).
