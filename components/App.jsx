@@ -495,14 +495,6 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : "Homely Mini";
   const subtitle = isStandard ? "This is what's included — just confirm" : "Customize your thali";
 
-  // Small line row helper for the Standard confirmation view
-  const SelectedLine = ({ label }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.saffronLight, borderRadius: 8, marginBottom: 8 }}>
-      <span style={{ color: C.saffron, fontWeight: 800, fontSize: 14 }}>✓</span>
-      <span style={{ fontSize: 14, color: C.ink, fontWeight: 600 }}>{label}</span>
-    </div>
-  );
-
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet">
@@ -552,34 +544,84 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
                 {planConfig.sweet} (Sweet)
               </label>
             </div>
-            <div style={{ background: C.cream, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.inkMid, marginBottom: 16 }}>
-              Also includes: {planConfig.rice} &amp; {planConfig.salad}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Rice for the Day</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.rice}
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Salad for the Day</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.salad}
+              </label>
             </div>
           </>
         )}
 
         {isStandard && (
-          <div style={{ marginBottom: 8 }}>
-            <SelectedLine label={`${nonPremium[0].name} + ${nonPremium[1].name} (fixed sabjis)`} />
-            <SelectedLine label="4 Chapatis" />
-            <SelectedLine label="Steamed Rice" />
-            <SelectedLine label="Standard Salad" />
-          </div>
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Sabjis (Fixed)</label>
+              {nonPremium.map(s => (
+                <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                  <input type="checkbox" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                  {s.name}
+                </label>
+              ))}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                4 Chapatis
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Rice</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                Steamed Rice
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Salad</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                Standard Salad
+              </label>
+            </div>
+          </>
         )}
 
         {isMini && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose 1 Sabji</label>
-            {nonPremium.map(s => (
-              <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
-                <input type="radio" name="miniSabji" checked={miniSabji === s.id} onChange={() => setMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
-                {s.name}
-              </label>
-            ))}
-            <div style={{ background: C.cream, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.inkMid, marginTop: 8 }}>
-              Also includes: 4 Chapati &amp; Standard Salad
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose 1 Sabji</label>
+              {nonPremium.map(s => (
+                <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                  <input type="radio" name="miniSabji" checked={miniSabji === s.id} onChange={() => setMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                  {s.name}
+                </label>
+              ))}
             </div>
-          </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                4 Chapatis
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Salad</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                Standard Salad
+              </label>
+            </div>
+          </>
         )}
 
         <button
