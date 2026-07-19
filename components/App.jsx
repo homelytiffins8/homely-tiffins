@@ -488,6 +488,46 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
 }
 
 // ─────────────────────────────────────────────
+// PHOTO PREVIEW MODAL (customer) — full-screen lightbox for plan images
+// ─────────────────────────────────────────────
+function PhotoPreviewModal({ src, label, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 300, padding: 20, cursor: "zoom-out",
+      }}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        style={{
+          position: "absolute", top: 16, right: 16, width: 40, height: 40, borderRadius: "50%",
+          background: "rgba(255,255,255,0.15)", color: C.white, border: "none",
+          fontSize: 22, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+        aria-label="Close"
+      >×</button>
+      <div style={{ maxWidth: "95vw", maxHeight: "85vh", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }} onClick={(e) => e.stopPropagation()}>
+        <img
+          src={src}
+          alt={label}
+          style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}
+        />
+        {label && <div style={{ color: C.white, fontSize: 14, fontWeight: 700, opacity: 0.9 }}>{label}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // PLAN CHOICE MODAL (customer) — Homely Gold / Mini customization
 // ─────────────────────────────────────────────
 function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
@@ -1173,7 +1213,8 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
   // Regular menu items and the fixed Standard / Extras lines don't need this —
   // their name/price is derived fresh from menu / planConfig every render.
   const [planCartMeta, setPlanCartMeta] = useState({});
-  const [planChoiceModal, setPlanChoiceModal] = useState(null); // "gold" | "mini" | null
+  const [planChoiceModal, setPlanChoiceModal] = useState(null); // "gold" | "standard" | "mini" | null
+  const [photoPreview, setPhotoPreview] = useState(null); // { src, label } | null — full-screen image viewer
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showInvalidPhone, setShowInvalidPhone] = useState(false);
@@ -1432,7 +1473,12 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.gold && (
-                        <img src={planConfig.photos.gold} alt="Homely Gold" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                        <img
+                          src={planConfig.photos.gold}
+                          alt="Homely Gold"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.gold, label: "Homely Gold" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
                       )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold</div>
@@ -1451,7 +1497,12 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.standard && (
-                        <img src={planConfig.photos.standard} alt="Homely Standard" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                        <img
+                          src={planConfig.photos.standard}
+                          alt="Homely Standard"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.standard, label: "Homely Standard" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
                       )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Standard</div>
@@ -1470,7 +1521,12 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                   <div style={{ padding: "16px 20px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
-                        <img src={planConfig.photos.mini} alt="Homely Mini" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
+                        <img
+                          src={planConfig.photos.mini}
+                          alt="Homely Mini"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.mini, label: "Homely Mini" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
                       )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
@@ -1559,6 +1615,14 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
               planConfig={planConfig}
               onAdd={addPlanToCart}
               onClose={() => setPlanChoiceModal(null)}
+            />
+          )}
+
+          {photoPreview && (
+            <PhotoPreviewModal
+              src={photoPreview.src}
+              label={photoPreview.label}
+              onClose={() => setPhotoPreview(null)}
             />
           )}
 
