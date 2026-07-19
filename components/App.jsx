@@ -448,11 +448,14 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
 // ─────────────────────────────────────────────
 function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const sabjis = planConfig.sabjis;
+  const nonPremium = sabjis.filter(s => !s.premium).slice(0, 2);
   const isGold = plan === "gold";
+  const isStandard = plan === "standard";
+  const isMini = plan === "mini";
   const [bread, setBread] = useState(BREAD_CHOICES[0].id);
   const [sabjiSel, setSabjiSel] = useState([]); // Gold: up to 2 sabji ids
   const [sweetOrRaita, setSweetOrRaita] = useState("raita");
-  const [miniSabji, setMiniSabji] = useState(sabjis[0]?.id || "");
+  const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
 
   const toggleSabji = (id) => {
     setSabjiSel(prev => {
@@ -474,23 +477,38 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
       const id = `gold:${bread}:${sabjiSel.slice().sort().join("+")}:${sweetOrRaita}`;
       const name = `Homely Gold — ${breadLabel}, ${chosenSabjis.map(s => s.name).join(" + ")}, ${planConfig.rice}, ${sweetRaitaLabel}, ${planConfig.salad}`;
       onAdd(id, name, planConfig.prices.gold);
-    } else {
+    } else if (isStandard) {
+      // Standard is a fixed configuration — nothing to choose. The dialog is
+      // just a confirmation of what's included.
+      const id = "plan-standard";
+      const name = `Homely Standard — 4 Chapati, ${nonPremium[0].name} + ${nonPremium[1].name}, Steamed Rice, Standard Salad`;
+      onAdd(id, name, planConfig.prices.standard);
+    } else if (isMini) {
       if (!miniValid) return;
-      const sabji = sabjis.find(s => s.id === miniSabji);
+      const sabji = nonPremium.find(s => s.id === miniSabji);
       const id = `mini:${miniSabji}`;
-      const name = `Homely Mini — 4 Chapati, ${sabji.name}, ${planConfig.salad}`;
+      const name = `Homely Mini — 4 Chapati, ${sabji.name}, Standard Salad`;
       onAdd(id, name, planConfig.prices.mini);
     }
   };
+
+  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : "Homely Mini";
+  const subtitle = isStandard ? "This is what's included — just confirm" : "Customize your thali";
+
+  // Small line row helper for the Standard confirmation view
+  const SelectedLine = ({ label }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.saffronLight, borderRadius: 8, marginBottom: 8 }}>
+      <span style={{ color: C.saffron, fontWeight: 800, fontSize: 14 }}>✓</span>
+      <span style={{ fontSize: 14, color: C.ink, fontWeight: 600 }}>{label}</span>
+    </div>
+  );
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet">
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>
-          {isGold ? "✨ Homely Gold" : "Homely Mini"}
-        </h2>
-        <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 18 }}>Customize your thali</p>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>{title}</h2>
+        <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 18 }}>{subtitle}</p>
 
         {isGold && (
           <>
@@ -540,23 +558,36 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
           </>
         )}
 
-        {!isGold && (
+        {isStandard && (
+          <div style={{ marginBottom: 8 }}>
+            <SelectedLine label={`${nonPremium[0].name} + ${nonPremium[1].name} (fixed sabjis)`} />
+            <SelectedLine label="4 Chapatis" />
+            <SelectedLine label="Steamed Rice" />
+            <SelectedLine label="Standard Salad" />
+          </div>
+        )}
+
+        {isMini && (
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose 1 Sabji</label>
-            {sabjis.slice(0, 2).map(s => (
+            {nonPremium.map(s => (
               <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
                 <input type="radio" name="miniSabji" checked={miniSabji === s.id} onChange={() => setMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
                 {s.name}
               </label>
             ))}
             <div style={{ background: C.cream, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.inkMid, marginTop: 8 }}>
-              Also includes: 4 Chapati &amp; {planConfig.salad}
+              Also includes: 4 Chapati &amp; Standard Salad
             </div>
           </div>
         )}
 
-        <button className="ht-btn btn-primary btn-full btn-lg" disabled={isGold ? !goldValid : !miniValid} onClick={handleAdd}>
-          Add to Cart · ₹{isGold ? planConfig.prices.gold : planConfig.prices.mini}
+        <button
+          className="ht-btn btn-primary btn-full btn-lg"
+          disabled={isGold ? !goldValid : isMini ? !miniValid : false}
+          onClick={handleAdd}
+        >
+          Add to Cart · ₹{isGold ? planConfig.prices.gold : isStandard ? planConfig.prices.standard : planConfig.prices.mini}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Cancel</button>
       </div>
@@ -1129,15 +1160,14 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
     planConfig.rice && planConfig.salad && planConfig.raita && planConfig.sweet);
   const sabjis = plansAvailable ? planConfig.sabjis : [];
 
-  // Standard has no customer choice — both sabjis and everything else is fixed
-  // for the day, so it's just a normal orderable line like any à la carte item.
-  const standardItem = plansAvailable ? {
-    id: "plan-standard",
-    name: `Homely Standard — 4 Chapati, ${sabjis[0].name} + ${sabjis[1].name}, Steamed Rice, ${planConfig.salad}`,
-    price: planConfig.prices.standard,
-  } : null;
+  // Non-premium sabjis (indices 0 and 1). Standard uses BOTH of these fixed;
+  // Mini lets the customer choose one of these two. The premium sabji (index 2)
+  // is ONLY unlocked through Homely Gold's choice dialog.
+  const nonPremiumSabjis = plansAvailable ? sabjis.filter(s => !s.premium).slice(0, 2) : [];
 
   // Raita / Salad / Sweet of the day — standalone à la carte-style items.
+  // Salad-for-the-day is a Gold/Extras-only ingredient; Standard and Mini use
+  // a plain "Standard Salad" so nothing in them changes day-to-day.
   const extraItems = plansAvailable ? [
     { id: "extra-raita", name: `${planConfig.raita} (Raita of the Day)`, price: planConfig.prices.raita },
     { id: "extra-salad", name: `${planConfig.salad} (Salad of the Day)`, price: planConfig.prices.salad },
@@ -1149,7 +1179,6 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
   const allSellableItems = [
     ...menuItems,
     ...extraItems,
-    ...(standardItem ? [standardItem] : []),
     ...Object.entries(planCartMeta).map(([id, m]) => ({ id, name: m.name, price: m.price })),
   ];
 
@@ -1318,7 +1347,7 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold</div>
                       <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        Choice of 2 sabjis · Choice of bread (4 chapati / 3 paratha) · {planConfig.rice} · Choice of {planConfig.raita} or {planConfig.sweet} · {planConfig.salad}
+                        Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -1328,20 +1357,16 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                   </div>
                 </div>
                 <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Standard</div>
                       <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        4 Chapati · {sabjis[0].name} + {sabjis[1].name} (fixed) · Steamed Rice · {planConfig.salad}
+                        2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <button className="ht-btn btn-secondary btn-sm" style={{ width: 28, height: 28, padding: 0, borderRadius: "50%", fontSize: 16 }} onClick={() => setQty(standardItem.id, -1)}>−</button>
-                        <span style={{ fontSize: 14, fontWeight: 700, minWidth: 18, textAlign: "center", color: C.ink }}>{cart[standardItem.id] || 0}</span>
-                        <button className="ht-btn btn-primary btn-sm" style={{ width: 28, height: 28, padding: 0, borderRadius: "50%", fontSize: 16 }} onClick={() => setQty(standardItem.id, 1)}>+</button>
-                      </div>
+                      <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("standard")}>+ Add</button>
                     </div>
                   </div>
                 </div>
@@ -1350,7 +1375,7 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
                       <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                        4 Chapati · Choice of 1 sabji (of 2) · {planConfig.salad}
+                        Choice of 1 sabji + 4 chapatis + standard salad
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -1361,7 +1386,7 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
                 </div>
               </div>
 
-              {/* Configured Gold / Mini selections already in the cart */}
+              {/* Configured Gold / Standard / Mini selections already in the cart */}
               {Object.entries(planCartMeta).length > 0 && (
                 <div className="ht-card slide-in" style={{ padding: 20 }}>
                   <h3 style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Your Selections</h3>
@@ -2090,7 +2115,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🥘 Today's Sabjis (exactly 3)</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
-          Gold: choice of any 2 of these 3 · Standard: sabji 1 + 2 (fixed) · Mini: choice of sabji 1 or 2
+          Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2
         </p>
         {sabjis.map((s, i) => (
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
