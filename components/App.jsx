@@ -22,6 +22,8 @@ const KEYS = {
   poll: "ht_poll",                // owner-defined customer poll config { id, active, question, options[] }
   pollResponses: "ht_poll_responses", // customer poll submissions — OWNER-ONLY view, never shown to customers
   planConfig: "ht_plan_config",   // daily thali-plan config: sabjis/rice/salad/raita/sweet + plan prices
+  contactInfo: "ht_contact_info", // owner-published contact channels { phone, whatsapp, email }
+  contactMessages: "ht_contact_messages", // customer-submitted messages inbox — owner-only
 };
 
 // ─────────────────────────────────────────────
@@ -483,6 +485,130 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// CONTACT US MODAL (customer)
+// ─────────────────────────────────────────────
+function ContactUsModal({ contactInfo, onSubmitMessage, onClose }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [message, setMessage] = useState("");
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
+
+  // Sanitise a raw phone/whatsapp number into a wa.me / tel: friendly form.
+  const digits = (s) => (s || "").replace(/[^0-9]/g, "");
+  const waNumber = digits(contactInfo?.whatsapp || contactInfo?.phone || "");
+  const telNumber = (contactInfo?.phone || "").trim();
+  const emailAddr = (contactInfo?.email || "").trim();
+
+  const hasAny = !!(telNumber || waNumber || emailAddr);
+
+  const handleSend = async () => {
+    setErr("");
+    if (!name.trim())    { setErr("Please enter your name"); return; }
+    if (!message.trim()) { setErr("Please write a message"); return; }
+    setSending(true);
+    try {
+      await onSubmitMessage({ name, phone, message });
+      setSent(true);
+      setTimeout(() => { setName(""); setPhone(""); setMessage(""); setSent(false); onClose(); }, 1600);
+    } catch (e) {
+      setErr("Couldn't send. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const ChannelButton = ({ href, icon, label, sub }) => (
+    <a
+      href={href}
+      target={href.startsWith("http") ? "_blank" : undefined}
+      rel="noopener noreferrer"
+      style={{
+        display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+        background: C.saffronLight, borderRadius: 10, textDecoration: "none",
+        marginBottom: 8, color: C.ink,
+      }}
+    >
+      <span style={{ fontSize: 22, width: 32, textAlign: "center" }}>{icon}</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 12, color: C.inkMid }}>{sub}</div>
+      </div>
+      <span style={{ color: C.saffron, fontWeight: 700 }}>→</span>
+    </a>
+  );
+
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-sheet">
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Contact Us</h2>
+        <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 18 }}>We'd love to hear from you</p>
+
+        {hasAny && (
+          <div style={{ marginBottom: 16 }}>
+            {telNumber && (
+              <ChannelButton href={`tel:${telNumber}`} icon="📞" label="Call us" sub={telNumber} />
+            )}
+            {waNumber && (
+              <ChannelButton href={`https://wa.me/${waNumber.length === 10 ? "91" + waNumber : waNumber}`} icon="💬" label="WhatsApp" sub={contactInfo.whatsapp || contactInfo.phone} />
+            )}
+            {emailAddr && (
+              <ChannelButton href={`mailto:${emailAddr}`} icon="✉️" label="Email" sub={emailAddr} />
+            )}
+          </div>
+        )}
+
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Send us a message</h3>
+          <p style={{ fontSize: 12, color: C.inkMid, marginBottom: 12 }}>Feedback, complaints, or questions — we'll get back to you</p>
+
+          <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
+            <input
+              className="ht-input"
+              placeholder="Your name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              maxLength={60}
+            />
+            <input
+              className="ht-input"
+              placeholder="Phone (optional)"
+              value={phone}
+              onChange={e => setPhone(e.target.value.replace(/[^0-9+ ]/g, ""))}
+              maxLength={20}
+              inputMode="tel"
+            />
+            <textarea
+              className="ht-input"
+              placeholder="Your message"
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              rows={4}
+              maxLength={600}
+              style={{ resize: "vertical", minHeight: 90 }}
+            />
+          </div>
+
+          {err && <div style={{ background: C.redLight, color: C.red, padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+
+          <button
+            className={`ht-btn ${sent ? "btn-green" : "btn-primary"} btn-full btn-lg`}
+            onClick={handleSend}
+            disabled={sending || sent}
+          >
+            {sent ? "✓ Message sent!" : sending ? "Sending…" : "Send Message"}
+          </button>
+        </div>
+
+        <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Close</button>
       </div>
     </div>
   );
@@ -1201,8 +1327,9 @@ const HomeStyle = () => (
 // ─────────────────────────────────────────────
 // CUSTOMER APP
 // ─────────────────────────────────────────────
-function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen, poll, onPlaceOrder, onSubmitRating, onSubmitPollResponse, onOwnerAccess }) {
+function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen, poll, onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
   const [step, setStep] = useState("home");
+  const [showContact, setShowContact] = useState(false);
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
   useEffect(() => {
     const onResize = () => setIsDesktop(window.innerWidth >= 768);
@@ -1817,21 +1944,36 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
             <div style={{ fontSize: 11.5, color: HC.brownMid, fontWeight: 600 }}>500+ Happy Customers</div>
           </div>
 
-          <button onClick={() => setStep("order")} disabled={!kitchenOpen || !menuAvailable} style={{
-            background: isDesktop ? HC.orange : "transparent",
-            color: isDesktop ? "#fff" : HC.orange,
-            border: `1.5px solid ${HC.orange}`,
-            padding: isDesktop ? "14px 32px" : "10px 22px",
-            borderRadius: 10,
-            fontFamily: "'Nunito', sans-serif", fontWeight: 800,
-            fontSize: isDesktop ? 17 : 15,
-            display: "inline-flex", alignItems: "center", gap: 8,
-            cursor: (kitchenOpen && menuAvailable) ? "pointer" : "not-allowed",
-            opacity: (kitchenOpen && menuAvailable) ? 1 : 0.5,
-            boxShadow: isDesktop ? "0 6px 16px rgba(224,115,26,.32)" : "none",
-          }}>
-            <CartIcon s={16} c={isDesktop ? "#fff" : HC.orange} /> Order Now
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={() => setStep("order")} disabled={!kitchenOpen || !menuAvailable} style={{
+              background: isDesktop ? HC.orange : "transparent",
+              color: isDesktop ? "#fff" : HC.orange,
+              border: `1.5px solid ${HC.orange}`,
+              padding: isDesktop ? "14px 32px" : "10px 22px",
+              borderRadius: 10,
+              fontFamily: "'Nunito', sans-serif", fontWeight: 800,
+              fontSize: isDesktop ? 17 : 15,
+              display: "inline-flex", alignItems: "center", gap: 8,
+              cursor: (kitchenOpen && menuAvailable) ? "pointer" : "not-allowed",
+              opacity: (kitchenOpen && menuAvailable) ? 1 : 0.5,
+              boxShadow: isDesktop ? "0 6px 16px rgba(224,115,26,.32)" : "none",
+            }}>
+              <CartIcon s={16} c={isDesktop ? "#fff" : HC.orange} /> Order Now
+            </button>
+            <button onClick={() => setShowContact(true)} style={{
+              background: "transparent",
+              color: HC.brownDark,
+              border: `1.5px solid ${HC.brownDark}`,
+              padding: isDesktop ? "14px 22px" : "10px 18px",
+              borderRadius: 10,
+              fontFamily: "'Nunito', sans-serif", fontWeight: 800,
+              fontSize: isDesktop ? 15 : 14,
+              display: "inline-flex", alignItems: "center", gap: 6,
+              cursor: "pointer",
+            }}>
+              📞 Contact Us
+            </button>
+          </div>
         </div>
 
         {/* RIGHT — tiffin image (desktop only) */}
@@ -2155,6 +2297,7 @@ function CustomerApp({ menu, planConfig, orders, ordersHistory = [], kitchenOpen
       </div>
 
       {showInvalidPhone && <InvalidPhoneModal onClose={() => setShowInvalidPhone(false)} />}
+      {showContact && <ContactUsModal contactInfo={contactInfo} onSubmitMessage={onSubmitContactMessage} onClose={() => setShowContact(false)} />}
     </div>
   );
 }
@@ -2462,6 +2605,112 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <button className={`ht-btn ${saved ? "btn-green" : "btn-primary"} btn-full btn-lg`} onClick={handleSave} disabled={!ready}>
         {saved ? "✓ Published!" : ready ? "Publish Today's Plans" : "Fill all fields to publish"}
       </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// CONTACT CENTER (owner) — edit contact channels + read customer messages
+// ─────────────────────────────────────────────
+function ContactCenter({ contactInfo, messages, onSave, onMarkRead, onDelete }) {
+  const [phone, setPhone] = useState(contactInfo?.phone || "");
+  const [whatsapp, setWhatsapp] = useState(contactInfo?.whatsapp || "");
+  const [email, setEmail] = useState(contactInfo?.email || "");
+  const [saved, setSaved] = useState(false);
+
+  // Keep local form fields in sync with any realtime updates while owner isn't editing
+  useEffect(() => {
+    setPhone(contactInfo?.phone || "");
+    setWhatsapp(contactInfo?.whatsapp || "");
+    setEmail(contactInfo?.email || "");
+  }, [contactInfo?.phone, contactInfo?.whatsapp, contactInfo?.email]);
+
+  const handleSave = () => {
+    onSave({ phone, whatsapp, email });
+    setSaved(true); setTimeout(() => setSaved(false), 1600);
+  };
+
+  const list = (messages || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>Contact Center</h2>
+        <p style={{ fontSize: 13, color: C.inkMid }}>Set the contact channels customers see, and review any messages they've sent you</p>
+      </div>
+
+      {/* Contact channel editor */}
+      <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>📇 Your Contact Info</h3>
+        <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Leave any field blank to hide that channel from customers</p>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Phone (tap-to-call)</label>
+            <input className="ht-input" placeholder="e.g. +91 98765 43210" value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>WhatsApp number</label>
+            <input className="ht-input" placeholder="e.g. 9876543210 (10 digits, or with +91)" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} inputMode="tel" />
+            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4 }}>If left blank but Phone is set, WhatsApp will use the phone number.</div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Email</label>
+            <input className="ht-input" placeholder="e.g. hello@homelytiffins.com" value={email} onChange={e => setEmail(e.target.value)} inputMode="email" />
+          </div>
+        </div>
+        <button className={`ht-btn ${saved ? "btn-green" : "btn-primary"} btn-full`} style={{ marginTop: 12 }} onClick={handleSave}>
+          {saved ? "✓ Saved!" : "Save Contact Info"}
+        </button>
+      </div>
+
+      {/* Messages inbox */}
+      <div className="ht-card" style={{ padding: 20 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>📥 Customer Messages ({list.length})</h3>
+        <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 14 }}>Messages sent through the "Contact Us" form on your homepage</p>
+
+        {list.length === 0 && (
+          <div style={{ padding: 24, textAlign: "center", color: C.inkLight, fontSize: 13 }}>
+            No messages yet.
+          </div>
+        )}
+
+        {list.map(m => (
+          <div key={m.id} style={{
+            padding: 14,
+            borderRadius: 10,
+            border: `1px solid ${m.read ? C.border : C.saffron}`,
+            background: m.read ? C.white : C.saffronLight,
+            marginBottom: 10,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+                  {m.name || "Anonymous"}
+                  {!m.read && <span style={{ marginLeft: 6, fontSize: 10, background: C.saffron, color: C.white, padding: "2px 6px", borderRadius: 4, fontWeight: 800 }}>NEW</span>}
+                </div>
+                {m.phone && (
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>
+                    📞 <a href={`tel:${m.phone}`} style={{ color: C.inkMid, textDecoration: "none" }}>{m.phone}</a>
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: C.inkLight, textAlign: "right", whiteSpace: "nowrap" }}>
+                {new Date(m.ts).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 10 }}>{m.message}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {!m.read && (
+                <button className="ht-btn btn-secondary btn-sm" onClick={() => onMarkRead(m.id)}>Mark read</button>
+              )}
+              {m.phone && (
+                <a className="ht-btn btn-secondary btn-sm" href={`https://wa.me/${(m.phone || "").replace(/[^0-9]/g, "").length === 10 ? "91" + m.phone.replace(/[^0-9]/g, "") : m.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>💬 WhatsApp</a>
+              )}
+              <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red, marginLeft: "auto" }} onClick={() => { if (confirm("Delete this message?")) onDelete(m.id); }}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -4147,10 +4396,11 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
 // ─────────────────────────────────────────────
 // BACKEND SHELL
 // ─────────────────────────────────────────────
-function BackendApp({ menu, planConfig, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, onSaveMenu, onSavePlanConfig, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses }) {
   const [tab, setTab] = useState("orders");
   const pendingCount = todayOrders.filter(o => o.status === "pending").length;
   const creditAlert = credit.filter(c => c.entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0) > 0).length;
+  const unreadContactCount = (contactMessages || []).filter(m => !m.read).length;
   const tabs = [
     { id: "orders",   label: "📦 Orders" },
     { id: "menu",     label: "🍽️ Menu" },
@@ -4158,6 +4408,7 @@ function BackendApp({ menu, planConfig, todayOrders, ordersHistory, customers, c
     { id: "credit",   label: "📒 Credit" },
     { id: "analytics",label: "📊 Analytics" },
     { id: "feedback", label: "🗳️ Feedback" },
+    { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
   ];
   return (
     <div style={{ minHeight: "100vh", background: C.cream }}>
@@ -4260,6 +4511,7 @@ function BackendApp({ menu, planConfig, todayOrders, ordersHistory, customers, c
         {tab === "orders"    && <OrderDashboard todayOrders={todayOrders} onAdvance={onAdvanceOrder} onReject={onRejectOrder} />}
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
+        {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
         {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
         {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
@@ -4441,6 +4693,8 @@ export default function App() {
 
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
+  const [contactInfo, setContactInfo] = useState({ phone: "", whatsapp: "", email: "" });
+  const [contactMessages, setContactMessages] = useState([]);
   const [todayOrders, setTodayOrders] = useState([]);
   const [ordersHistory, setOrdersHistory] = useState([]); // archived past orders (~100 days)
   const [customers, setCustomers] = useState([]);
@@ -4464,7 +4718,7 @@ export default function App() {
   // ── BOOT: load storage + handle daily rollover ──
   useEffect(() => {
     (async () => {
-      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc] = await Promise.all([
+      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm] = await Promise.all([
         load(KEYS.menu),
         load(KEYS.todayOrders),
         load(KEYS.customers),
@@ -4475,10 +4729,14 @@ export default function App() {
         load(KEYS.poll),
         load(KEYS.pollResponses),
         load(KEYS.planConfig),
+        load(KEYS.contactInfo),
+        load(KEYS.contactMessages),
       ]);
 
       if (m) setMenu(m);
       if (pc) setPlanConfig(normalisePlanConfig(pc));
+      if (ci) setContactInfo({ phone: "", whatsapp: "", email: "", ...ci });
+      if (Array.isArray(cm)) setContactMessages(cm);
       if (cust) setCustomers(cust);
       if (cred) setCredit(cred);
       if (hist) setOrdersHistory(hist);
@@ -4534,6 +4792,8 @@ export default function App() {
         const newVal = payload.new?.value;
         if (changedKey === KEYS.menu)        setMenu(newVal);
         if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
+        if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
+        if (changedKey === KEYS.contactMessages) setContactMessages(Array.isArray(newVal) ? newVal : []);
         if (changedKey === KEYS.todayOrders) {
           const incoming = newVal || [];
           // Empty payload = authoritative wipe (daily rollover / manual reset).
@@ -4587,6 +4847,43 @@ export default function App() {
   const handleSavePlanConfig = useCallback(async (newConfig) => {
     setPlanConfig(newConfig); await save(KEYS.planConfig, newConfig);
   }, []);
+
+  const handleSaveContactInfo = useCallback(async (info) => {
+    const clean = { phone: (info.phone || "").trim(), whatsapp: (info.whatsapp || "").trim(), email: (info.email || "").trim() };
+    setContactInfo(clean); await save(KEYS.contactInfo, clean);
+  }, []);
+
+  const handleSubmitContactMessage = useCallback(async ({ name, phone, message }) => {
+    // Fetch-merge-write so a message doesn't overwrite a concurrent one.
+    const remote = await load(KEYS.contactMessages);
+    const list = Array.isArray(remote) ? remote : [];
+    const entry = {
+      id: genId(),
+      name: (name || "").trim(),
+      phone: (phone || "").trim(),
+      message: (message || "").trim(),
+      ts: Date.now(),
+      read: false,
+    };
+    const next = [entry, ...list].slice(0, 500); // cap to avoid runaway growth
+    setContactMessages(next);
+    await save(KEYS.contactMessages, next);
+    return true;
+  }, []);
+
+  const handleMarkContactRead = useCallback(async (id) => {
+    const remote = await load(KEYS.contactMessages);
+    const list = Array.isArray(remote) ? remote : contactMessages;
+    const next = list.map(m => m.id === id ? { ...m, read: true } : m);
+    setContactMessages(next); await save(KEYS.contactMessages, next);
+  }, [contactMessages]);
+
+  const handleDeleteContactMessage = useCallback(async (id) => {
+    const remote = await load(KEYS.contactMessages);
+    const list = Array.isArray(remote) ? remote : contactMessages;
+    const next = list.filter(m => m.id !== id);
+    setContactMessages(next); await save(KEYS.contactMessages, next);
+  }, [contactMessages]);
 
   const handleToggleKitchen = useCallback(async () => {
     const next = !kitchenOpen;
@@ -4913,6 +5210,7 @@ export default function App() {
         <CustomerApp
           menu={menu}
           planConfig={planConfig}
+          contactInfo={contactInfo}
           orders={todayOrders}
           ordersHistory={ordersHistory}
           kitchenOpen={kitchenOpen}
@@ -4920,6 +5218,7 @@ export default function App() {
           onPlaceOrder={handlePlaceOrder}
           onSubmitRating={handleSubmitRating}
           onSubmitPollResponse={handleSubmitPollResponse}
+          onSubmitContactMessage={handleSubmitContactMessage}
           onOwnerAccess={() => setRoute("owner")}
         />
       )}
@@ -4932,6 +5231,8 @@ export default function App() {
         <BackendApp
           menu={menu}
           planConfig={planConfig}
+          contactInfo={contactInfo}
+          contactMessages={contactMessages}
           todayOrders={todayOrders}
           ordersHistory={ordersHistory}
           customers={customers}
@@ -4941,6 +5242,9 @@ export default function App() {
           pollResponses={pollResponses}
           onSaveMenu={handleSaveMenu}
           onSavePlanConfig={handleSavePlanConfig}
+          onSaveContactInfo={handleSaveContactInfo}
+          onMarkContactRead={handleMarkContactRead}
+          onDeleteContactMessage={handleDeleteContactMessage}
           onAdvanceOrder={handleAdvanceOrder}
           onRejectOrder={handleRejectOrder}
           onLogout={handleOwnerLogout}
