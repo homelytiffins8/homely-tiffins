@@ -68,9 +68,10 @@ function normalisePlanConfig(cfg) {
 }
 
 // Resize + compress a File to a base64 JPEG data URL suitable for Supabase.
-// Keeps stored images ~50–150 KB each so a full planConfig stays well under
-// Supabase's 5 MB per-key value limit even with three photos.
-function resizeAndCompressImage(file, maxWidth = 700, quality = 0.72) {
+// 1400px wide at 0.85 quality gives crisp full-screen previews on the customer
+// side while keeping each photo roughly 200–400 KB — three photos still leave
+// the planConfig blob well under Supabase's 5 MB per-key limit.
+function resizeAndCompressImage(file, maxWidth = 1400, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
