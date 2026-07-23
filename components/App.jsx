@@ -24,7 +24,90 @@ const KEYS = {
   planConfig: "ht_plan_config",   // daily thali-plan config: sabjis/rice/salad/raita/sweet + plan prices
   contactInfo: "ht_contact_info", // owner-published contact channels { phone, whatsapp, email }
   contactMessages: "ht_contact_messages", // customer-submitted messages inbox — owner-only
+  promoCodes: "ht_promo_codes",           // owner-defined promo/discount codes (array)
+  referralConfig: "ht_referral_config",   // referral programme settings { enabled, referredDiscount, referrerReward }
 };
+
+// ─────────────────────────────────────────────
+// PROMO CODE + REFERRAL HELPERS
+// ─────────────────────────────────────────────
+function defaultReferralConfig() {
+  return { enabled: true, referredDiscount: 30, referrerReward: 50, minOrder: 0 };
+}
+
+// Referral code derived from phone: HT + last 5 digits. Deterministic,
+// so any customer's code is recoverable from their phone. Every past
+// customer therefore already has a working referral code.
+function getReferralCode(phone) {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (digits.length < 5) return "";
+  return "HT" + digits.slice(-5);
+}
+function phoneMatchesReferralCode(phone, code) {
+  return getReferralCode(phone) === (code || "").toUpperCase().trim();
+}
+
+// Try to resolve an entered promo/referral code against:
+//   1. Active promo codes (flat / percent)
+//   2. Referral pattern HT##### matching an existing customer (with >=1 past order)
+// Returns { ok, discount, kind: "promo"|"referral", promoCode?, referrerPhone?, referrerName?, error? }
+// Rules:
+//   - Empty code => ok:true, discount:0, kind:"none"
+//   - Promo code (case-insensitive) wins if it matches an active entry
+//   - Referral: cannot self-refer; new customer must NOT have ordered before
+//   - Min-order enforced if the code / config specifies it
+function resolvePromoOrReferral({ codeText, promoCodes = [], referralConfig, customers = [], phone, cartTotal }) {
+  const raw = (codeText || "").trim();
+  if (!raw) return { ok: true, discount: 0, kind: "none" };
+  const upper = raw.toUpperCase();
+
+  // 1) Promo code match
+  const promo = (promoCodes || []).find(p =>
+    p && p.active !== false && (p.code || "").toUpperCase() === upper
+  );
+  if (promo) {
+    if (promo.minOrder && cartTotal < promo.minOrder) {
+      return { ok: false, error: `Minimum order ₹${promo.minOrder} required for this code` };
+    }
+    let discount = 0;
+    if (promo.type === "percent") {
+      const pct = Math.max(0, Math.min(100, Number(promo.value) || 0));
+      discount = Math.round((cartTotal * pct) / 100);
+    } else {
+      discount = Math.max(0, Math.round(Number(promo.value) || 0));
+    }
+    discount = Math.min(discount, cartTotal);
+    return { ok: true, discount, kind: "promo", promoCode: promo.code, description: promo.description };
+  }
+
+  // 2) Referral code match (HT#####)
+  const rc = referralConfig && referralConfig.enabled !== false ? referralConfig : null;
+  if (rc && /^HT\d{5}$/i.test(upper)) {
+    // Find referrer by matching last-5 of phone
+    const referrer = (customers || []).find(c => getReferralCode(c.phone) === upper && (c.totalOrders || 0) >= 1);
+    if (!referrer) return { ok: false, error: "Referral code not recognised" };
+    // Prevent self-referral
+    if (phone && phoneMatchesReferralCode(phone, upper)) {
+      return { ok: false, error: "You can't use your own referral code" };
+    }
+    // Referred user must be new (no prior orders)
+    const existing = (customers || []).find(c => c.phone === phone);
+    if (existing && (existing.totalOrders || 0) >= 1) {
+      return { ok: false, error: "Referral codes are only for new customers" };
+    }
+    if (rc.minOrder && cartTotal < rc.minOrder) {
+      return { ok: false, error: `Minimum order ₹${rc.minOrder} required to use a referral code` };
+    }
+    const discount = Math.min(Math.max(0, Number(rc.referredDiscount) || 0), cartTotal);
+    return {
+      ok: true, discount, kind: "referral",
+      referrerPhone: referrer.phone, referrerName: referrer.name,
+      description: `Referred by ${referrer.name}`,
+    };
+  }
+
+  return { ok: false, error: "Invalid or inactive code" };
+}
 
 // ─────────────────────────────────────────────
 // THALI PLANS (Homely Gold / Standard / Mini)
@@ -371,9 +454,22 @@ const GlobalStyle = () => (
 // ─────────────────────────────────────────────
 // CUSTOMER DETAILS POPUP (bottom sheet)
 // ─────────────────────────────────────────────
-function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, onConfirm, onClose }) {
+function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], onConfirm, onClose }) {
   const [form, setForm] = useState({ name: "", phone: "", tower: "", flat: "" });
   const [errors, setErrors] = useState({});
+  const [promoText, setPromoText] = useState("");
+  // Live-resolved promo/referral result; recomputed whenever inputs change.
+  // ok:true + discount==0 (no code entered) is the neutral state.
+  const promoResult = resolvePromoOrReferral({
+    codeText: promoText,
+    promoCodes,
+    referralConfig,
+    customers,
+    phone: form.phone.trim(),
+    cartTotal,
+  });
+  const discount = promoResult.ok ? promoResult.discount : 0;
+  const finalTotal = Math.max(0, cartTotal - discount);
 
   const validate = () => {
     const e = {};
@@ -381,6 +477,8 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
     if (!form.phone.trim() || !/^\d{10}$/.test(form.phone.trim())) e.phone = "Enter a valid 10-digit number";
     if (!form.tower) e.tower = "Select your tower";
     if (!form.flat.trim()) e.flat = "Required";
+    // If a code was entered, it must resolve successfully
+    if (promoText.trim() && !promoResult.ok) e.promo = promoResult.error || "Invalid code";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -391,19 +489,33 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
       const item = menuItems.find(i => i.id === id);
       return { id, name: item.name, price: item.price, qty };
     });
-    onConfirm({
+    const order = {
       id: genId(),
       customerName: form.name.trim(),
       phone: form.phone.trim(),
       tower: form.tower,
       flat: form.flat.trim(),
       items: orderItems,
-      total: cartTotal,
+      total: finalTotal,
+      originalTotal: cartTotal,
+      discount,
       specialInstructions: (specialInstructions || "").trim(),
       status: "pending",
       date: todayStr(),
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (promoResult.ok && discount > 0) {
+      if (promoResult.kind === "promo") {
+        order.promoCode = promoResult.promoCode;
+        order.promoLabel = promoResult.description || promoResult.promoCode;
+      } else if (promoResult.kind === "referral") {
+        order.referralCode = promoText.trim().toUpperCase();
+        order.referrerPhone = promoResult.referrerPhone;
+        order.referrerName = promoResult.referrerName;
+        order.referrerRewardPending = true; // paid out on delivery in handleAdvanceOrder
+      }
+    }
+    onConfirm(order);
   };
 
   return (
@@ -479,8 +591,48 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
           </div>
         </div>
 
+        {/* Promo / Referral code */}
+        <div style={{ marginTop: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>
+            Promo or referral code <span style={{ color: C.inkLight, fontWeight: 400 }}>(optional)</span>
+          </label>
+          <input
+            className="ht-input"
+            placeholder="e.g. WELCOME10 or HT12345"
+            value={promoText}
+            onChange={e => { setPromoText(e.target.value.toUpperCase()); setErrors(p => ({ ...p, promo: "" })); }}
+            style={{ textTransform: "uppercase", ...(errors.promo ? { borderColor: C.red } : {}) }}
+          />
+          {promoText.trim() && promoResult.ok && discount > 0 && (
+            <p style={{ fontSize: 12, color: "#2E7D32", marginTop: 4, fontWeight: 600 }}>
+              ✓ {promoResult.description || "Code applied"} — you save ₹{discount}
+            </p>
+          )}
+          {promoText.trim() && !promoResult.ok && (
+            <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{promoResult.error || "Invalid code"}</p>
+          )}
+          {errors.promo && !promoText.trim() && (
+            <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{errors.promo}</p>
+          )}
+        </div>
+
+        {/* Price summary with discount */}
+        {discount > 0 && (
+          <div style={{ marginTop: 14, padding: "10px 14px", background: "#F1F8E9", borderRadius: 10, border: "1px solid #C5E1A5" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.inkMid, marginBottom: 2 }}>
+              <span>Subtotal</span><span>₹{cartTotal}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#2E7D32", marginBottom: 4 }}>
+              <span>Discount</span><span>−₹{discount}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800, color: C.ink }}>
+              <span>You pay</span><span>₹{finalTotal}</span>
+            </div>
+          </div>
+        )}
+
         <button className="ht-btn btn-primary btn-full btn-lg" style={{ marginTop: 24 }} onClick={handleConfirm}>
-          ✓ Confirm Order · ₹{cartTotal}
+          ✓ Confirm Order · ₹{finalTotal}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>
           Cancel
@@ -1327,7 +1479,7 @@ const HomeStyle = () => (
 // ─────────────────────────────────────────────
 // CUSTOMER APP
 // ─────────────────────────────────────────────
-function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen, poll, onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
+function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen, poll, promoCodes = [], referralConfig, customers = [], onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
   const [step, setStep] = useState("home");
   const [showContact, setShowContact] = useState(false);
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
@@ -1548,6 +1700,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   <span style={{ fontWeight: 600, color: C.ink }}>₹{item.price * item.qty}</span>
                 </div>
               ))}
+              {live.discount > 0 && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontSize: 13, color: C.inkMid }}>
+                    <span>Subtotal</span>
+                    <span>₹{live.originalTotal || (live.total + live.discount)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#2E7D32", fontWeight: 600 }}>
+                    <span>{live.promoLabel ? `Promo (${live.promoCode})` : live.referralCode ? `Referral (${live.referralCode})` : "Discount"}</span>
+                    <span>−₹{live.discount}</span>
+                  </div>
+                </>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontWeight: 700, fontSize: 15 }}>
                 <span>Total</span>
                 <span style={{ color: C.saffron }}>₹{live.total}</span>
@@ -1556,10 +1720,41 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           )}
 
           {!isRejected && (
-            <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 20 }}>
+            <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 16 }}>
               <p style={{ fontSize: 13, color: C.inkMid }}>
                 Delivering to <strong style={{ color: C.ink }}>{live.tower}, Flat {live.flat}</strong>
               </p>
+            </div>
+          )}
+
+          {/* Refer a friend — show customer's own referral code so they can share it */}
+          {!isRejected && referralConfig && referralConfig.enabled !== false && getReferralCode(live.phone) && (
+            <div className="ht-card slide-in" style={{ padding: 18, marginBottom: 20, background: C.saffronLight, borderColor: C.saffron }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🎁 Share &amp; earn</div>
+              <p style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5, marginBottom: 10 }}>
+                Share your code with friends. They save ₹{referralConfig.referredDiscount || 0} on their first order,
+                and you get ₹{referralConfig.referrerReward || 0} credit on your next.
+              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <code style={{
+                  fontSize: 16, fontWeight: 800, letterSpacing: 1,
+                  background: C.white, color: C.saffron,
+                  padding: "8px 14px", borderRadius: 8, border: `1px dashed ${C.saffron}`,
+                  flex: 1, textAlign: "center",
+                }}>{getReferralCode(live.phone)}</code>
+                <button
+                  className="ht-btn btn-primary btn-sm"
+                  onClick={() => {
+                    const code = getReferralCode(live.phone);
+                    const text = `Try Homely Tiffins! Use my referral code ${code} for ₹${referralConfig.referredDiscount || 0} off your first order. https://homelytiffins.com`;
+                    if (navigator.share) {
+                      navigator.share({ text }).catch(() => {});
+                    } else {
+                      try { navigator.clipboard.writeText(code); alert("Code copied!"); } catch {}
+                    }
+                  }}
+                >Share</button>
+              </div>
             </div>
           )}
 
@@ -1795,6 +1990,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             cartTotal={cartTotal}
             cartCount={cartCount}
             specialInstructions={specialInstructions}
+            promoCodes={promoCodes}
+            referralConfig={referralConfig}
+            customers={customers}
             onConfirm={handleConfirmOrder}
             onClose={() => setShowModal(false)}
           />
@@ -2710,6 +2908,239 @@ function ContactCenter({ contactInfo, messages, onSave, onMarkRead, onDelete }) 
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// PROMO CENTER (owner) — manage promo codes + referral programme
+// ─────────────────────────────────────────────
+function PromoCenter({ promoCodes = [], referralConfig, onSavePromoCodes, onSaveReferralConfig, todayOrders = [], ordersHistory = [] }) {
+  const cfg = referralConfig || defaultReferralConfig();
+  const [draft, setDraft] = useState({ code: "", type: "flat", value: "", description: "", minOrder: "" });
+  const [error, setError] = useState("");
+
+  // Referral programme editor — local copies so typing feels instant
+  const [refEnabled, setRefEnabled] = useState(cfg.enabled !== false);
+  const [refDiscount, setRefDiscount] = useState(String(cfg.referredDiscount ?? 30));
+  const [refReward, setRefReward] = useState(String(cfg.referrerReward ?? 50));
+  const [refMinOrder, setRefMinOrder] = useState(String(cfg.minOrder ?? 0));
+  const [refSaved, setRefSaved] = useState(false);
+
+  useEffect(() => {
+    setRefEnabled(cfg.enabled !== false);
+    setRefDiscount(String(cfg.referredDiscount ?? 30));
+    setRefReward(String(cfg.referrerReward ?? 50));
+    setRefMinOrder(String(cfg.minOrder ?? 0));
+  }, [cfg.enabled, cfg.referredDiscount, cfg.referrerReward, cfg.minOrder]);
+
+  // Count referral usage across today's orders + history so owner can see impact
+  const allOrders = [...(todayOrders || []), ...(ordersHistory || [])];
+  const referralUses = allOrders.filter(o => o.referralCode).length;
+  const promoUses = allOrders.filter(o => o.promoCode).length;
+
+  const handleAddCode = () => {
+    setError("");
+    const code = draft.code.trim().toUpperCase();
+    if (!code) return setError("Enter a code");
+    if (/^HT\d{5}$/i.test(code)) return setError("HT##### is reserved for referral codes");
+    if (promoCodes.some(p => (p.code || "").toUpperCase() === code)) return setError("This code already exists");
+    const value = Number(draft.value);
+    if (!Number.isFinite(value) || value <= 0) return setError("Enter a valid discount value");
+    if (draft.type === "percent" && value > 100) return setError("Percent must be 0–100");
+    const minOrder = Number(draft.minOrder) || 0;
+    const entry = {
+      id: genId(),
+      code,
+      type: draft.type,
+      value,
+      description: draft.description.trim(),
+      minOrder,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    onSavePromoCodes([entry, ...promoCodes]);
+    setDraft({ code: "", type: "flat", value: "", description: "", minOrder: "" });
+  };
+
+  const handleToggle = (id) => {
+    onSavePromoCodes(promoCodes.map(p => p.id === id ? { ...p, active: p.active === false ? true : false } : p));
+  };
+  const handleDelete = (id) => {
+    if (!confirm("Delete this promo code? Past orders that used it are unaffected.")) return;
+    onSavePromoCodes(promoCodes.filter(p => p.id !== id));
+  };
+
+  const handleSaveReferral = () => {
+    const next = {
+      enabled: refEnabled,
+      referredDiscount: Math.max(0, Number(refDiscount) || 0),
+      referrerReward: Math.max(0, Number(refReward) || 0),
+      minOrder: Math.max(0, Number(refMinOrder) || 0),
+    };
+    onSaveReferralConfig(next);
+    setRefSaved(true); setTimeout(() => setRefSaved(false), 1600);
+  };
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>Promo &amp; Referrals</h2>
+        <p style={{ fontSize: 13, color: C.inkMid }}>Create discount codes and manage the refer-a-friend programme</p>
+      </div>
+
+      {/* Usage stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <div className="ht-card" style={{ padding: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.saffron }}>{promoUses}</div>
+          <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>Promo redemptions</div>
+        </div>
+        <div className="ht-card" style={{ padding: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.saffron }}>{referralUses}</div>
+          <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>Referral redemptions</div>
+        </div>
+      </div>
+
+      {/* Add new promo code */}
+      <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>➕ Add promo code</h3>
+        <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
+          Codes are case-insensitive. Customers enter them at checkout.
+        </p>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Code</label>
+              <input
+                className="ht-input"
+                placeholder="e.g. WELCOME10"
+                value={draft.code}
+                onChange={e => setDraft(p => ({ ...p, code: e.target.value.toUpperCase() }))}
+                style={{ textTransform: "uppercase" }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Discount type</label>
+              <select className="ht-select" value={draft.type} onChange={e => setDraft(p => ({ ...p, type: e.target.value }))}>
+                <option value="flat">Flat ₹ off</option>
+                <option value="percent">% off cart</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>
+                {draft.type === "percent" ? "Percent (0–100)" : "Amount (₹)"}
+              </label>
+              <input
+                className="ht-input"
+                type="number"
+                inputMode="numeric"
+                placeholder={draft.type === "percent" ? "e.g. 10" : "e.g. 50"}
+                value={draft.value}
+                onChange={e => setDraft(p => ({ ...p, value: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Min order ₹ (optional)</label>
+              <input
+                className="ht-input"
+                type="number"
+                inputMode="numeric"
+                placeholder="0"
+                value={draft.minOrder}
+                onChange={e => setDraft(p => ({ ...p, minOrder: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Description (shown to customer)</label>
+            <input
+              className="ht-input"
+              placeholder="e.g. Welcome offer — first order"
+              value={draft.description}
+              onChange={e => setDraft(p => ({ ...p, description: e.target.value }))}
+              maxLength={80}
+            />
+          </div>
+          {error && <p style={{ fontSize: 12, color: C.red }}>{error}</p>}
+          <button className="ht-btn btn-primary btn-full" onClick={handleAddCode}>+ Add promo code</button>
+        </div>
+      </div>
+
+      {/* Existing codes */}
+      <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>
+          Active codes ({promoCodes.filter(p => p.active !== false).length}/{promoCodes.length})
+        </h3>
+        {promoCodes.length === 0 && (
+          <div style={{ padding: 20, textAlign: "center", color: C.inkLight, fontSize: 13 }}>
+            No promo codes yet.
+          </div>
+        )}
+        {promoCodes.map(p => (
+          <div key={p.id} style={{
+            padding: 12,
+            borderRadius: 10,
+            border: `1px solid ${p.active === false ? C.border : C.saffron}`,
+            background: p.active === false ? "#FAFAFA" : C.white,
+            marginBottom: 8,
+            opacity: p.active === false ? 0.6 : 1,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                  <code style={{ fontSize: 14, fontWeight: 800, color: C.saffron, background: C.saffronLight, padding: "2px 8px", borderRadius: 4 }}>{p.code}</code>
+                  <span style={{ fontSize: 12, color: C.ink, fontWeight: 700 }}>
+                    {p.type === "percent" ? `${p.value}% off` : `₹${p.value} off`}
+                  </span>
+                  {p.minOrder > 0 && <span style={{ fontSize: 10, color: C.inkLight }}>min ₹{p.minOrder}</span>}
+                </div>
+                {p.description && <div style={{ fontSize: 11, color: C.inkMid }}>{p.description}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="ht-btn btn-secondary btn-sm" onClick={() => handleToggle(p.id)}>
+                  {p.active === false ? "Enable" : "Disable"}
+                </button>
+                <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => handleDelete(p.id)}>Delete</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Referral programme */}
+      <div className="ht-card" style={{ padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>🎁 Referral programme</h3>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.inkMid, cursor: "pointer" }}>
+            <input type="checkbox" checked={refEnabled} onChange={e => setRefEnabled(e.target.checked)} />
+            <span>Enabled</span>
+          </label>
+        </div>
+        <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
+          Each existing customer's referral code is <strong>HT + last 5 digits of their phone</strong> (e.g. HT12345).
+          New customers who enter it at checkout get an instant discount; the referrer gets credit added to their ledger
+          once the new customer's order is delivered.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Discount for referred (₹)</label>
+            <input className="ht-input" type="number" inputMode="numeric" value={refDiscount} onChange={e => setRefDiscount(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Reward for referrer (₹)</label>
+            <input className="ht-input" type="number" inputMode="numeric" value={refReward} onChange={e => setRefReward(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Minimum order to qualify (₹, 0 = none)</label>
+          <input className="ht-input" type="number" inputMode="numeric" value={refMinOrder} onChange={e => setRefMinOrder(e.target.value)} />
+        </div>
+        <button className={`ht-btn ${refSaved ? "btn-green" : "btn-primary"} btn-full`} onClick={handleSaveReferral}>
+          {refSaved ? "✓ Saved!" : "Save referral settings"}
+        </button>
       </div>
     </div>
   );
@@ -4396,7 +4827,7 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
 // ─────────────────────────────────────────────
 // BACKEND SHELL
 // ─────────────────────────────────────────────
-function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
   const pendingCount = todayOrders.filter(o => o.status === "pending").length;
   const creditAlert = credit.filter(c => c.entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0) > 0).length;
@@ -4409,6 +4840,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "analytics",label: "📊 Analytics" },
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
+    { id: "promo",    label: "🎟️ Promo" },
   ];
   return (
     <div style={{ minHeight: "100vh", background: C.cream }}>
@@ -4515,6 +4947,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
         {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
+        {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
       </div>
     </div>
   );
@@ -4702,6 +5135,8 @@ export default function App() {
   const [kitchenOpen, setKitchenOpen] = useState(true); // owner-controlled
   const [poll, setPoll] = useState(null);               // owner-defined customer poll
   const [pollResponses, setPollResponses] = useState([]); // customer poll submissions (owner-only)
+  const [promoCodes, setPromoCodes] = useState([]);       // owner-defined promo codes
+  const [referralConfig, setReferralConfig] = useState(defaultReferralConfig());
   const [loaded, setLoaded] = useState(false);
 
   // Listen to hash changes so back/forward browser nav works
@@ -4718,7 +5153,7 @@ export default function App() {
   // ── BOOT: load storage + handle daily rollover ──
   useEffect(() => {
     (async () => {
-      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm] = await Promise.all([
+      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm, prm, rcfg] = await Promise.all([
         load(KEYS.menu),
         load(KEYS.todayOrders),
         load(KEYS.customers),
@@ -4731,6 +5166,8 @@ export default function App() {
         load(KEYS.planConfig),
         load(KEYS.contactInfo),
         load(KEYS.contactMessages),
+        load(KEYS.promoCodes),
+        load(KEYS.referralConfig),
       ]);
 
       if (m) setMenu(m);
@@ -4743,6 +5180,8 @@ export default function App() {
       if (ko !== null && ko !== undefined) setKitchenOpen(!!ko);
       if (pl) setPoll(pl);
       if (Array.isArray(pr)) setPollResponses(pr);
+      if (Array.isArray(prm)) setPromoCodes(prm);
+      if (rcfg) setReferralConfig({ ...defaultReferralConfig(), ...rcfg });
 
       const today = todayStr();
 
@@ -4832,6 +5271,8 @@ export default function App() {
             return Array.from(byId.values());
           });
         }
+        if (changedKey === KEYS.promoCodes) setPromoCodes(Array.isArray(newVal) ? newVal : []);
+        if (changedKey === KEYS.referralConfig) setReferralConfig({ ...defaultReferralConfig(), ...(newVal || {}) });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -4851,6 +5292,18 @@ export default function App() {
   const handleSaveContactInfo = useCallback(async (info) => {
     const clean = { phone: (info.phone || "").trim(), whatsapp: (info.whatsapp || "").trim(), email: (info.email || "").trim() };
     setContactInfo(clean); await save(KEYS.contactInfo, clean);
+  }, []);
+
+  const handleSavePromoCodes = useCallback(async (next) => {
+    const clean = Array.isArray(next) ? next : [];
+    setPromoCodes(clean);
+    await save(KEYS.promoCodes, clean);
+  }, []);
+
+  const handleSaveReferralConfig = useCallback(async (cfg) => {
+    const clean = { ...defaultReferralConfig(), ...(cfg || {}) };
+    setReferralConfig(clean);
+    await save(KEYS.referralConfig, clean);
   }, []);
 
   const handleSubmitContactMessage = useCallback(async ({ name, phone, message }) => {
@@ -5016,11 +5469,45 @@ export default function App() {
         } else {
           next.push({ phone: order.phone, name: order.customerName, tower: order.tower, flat: order.flat, entries: [entry] });
         }
+
+        // ── Referral payout (idempotent) ──
+        // If this delivered order used a referral code, pay the referrer their
+        // reward as a CREDIT entry on their ledger. Keyed on
+        // "referral:<orderId>" so it's paid at most once even under retries.
+        if (order.referrerPhone && order.referrerRewardPending) {
+          const rewardAmt = Math.max(0, Number(referralConfig?.referrerReward) || 0);
+          if (rewardAmt > 0) {
+            const rIdx = next.findIndex(c => c.phone === order.referrerPhone);
+            const rewardKey = "referral:" + order.id;
+            const alreadyPaid = rIdx >= 0 && next[rIdx].entries.some(e => e.orderId === rewardKey);
+            if (!alreadyPaid) {
+              const rewardEntry = {
+                id: genId(),
+                orderId: rewardKey, // synthetic id for idempotency
+                date: new Date().toISOString(),
+                type: "credit",
+                amount: rewardAmt,
+                note: `Referral bonus — ${order.customerName} used your code`,
+              };
+              if (rIdx >= 0) {
+                next[rIdx] = { ...next[rIdx], entries: [...next[rIdx].entries, rewardEntry] };
+              } else {
+                next.push({
+                  phone: order.referrerPhone,
+                  name: order.referrerName || "Referrer",
+                  tower: "", flat: "",
+                  entries: [rewardEntry],
+                });
+              }
+            }
+          }
+        }
+
         save(KEYS.credit, next);
         return next;
       });
     }
-  }, [todayOrders]);
+  }, [todayOrders, referralConfig]);
 
   const handleRejectOrder = useCallback(async (orderId) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
@@ -5215,6 +5702,9 @@ export default function App() {
           ordersHistory={ordersHistory}
           kitchenOpen={kitchenOpen}
           poll={poll}
+          promoCodes={promoCodes}
+          referralConfig={referralConfig}
+          customers={customers}
           onPlaceOrder={handlePlaceOrder}
           onSubmitRating={handleSubmitRating}
           onSubmitPollResponse={handleSubmitPollResponse}
@@ -5240,6 +5730,8 @@ export default function App() {
           kitchenOpen={kitchenOpen}
           poll={poll}
           pollResponses={pollResponses}
+          promoCodes={promoCodes}
+          referralConfig={referralConfig}
           onSaveMenu={handleSaveMenu}
           onSavePlanConfig={handleSavePlanConfig}
           onSaveContactInfo={handleSaveContactInfo}
@@ -5257,6 +5749,8 @@ export default function App() {
           onSavePoll={handleSavePoll}
           onTogglePoll={handleTogglePoll}
           onClearPollResponses={handleClearPollResponses}
+          onSavePromoCodes={handleSavePromoCodes}
+          onSaveReferralConfig={handleSaveReferralConfig}
         />
       )}
     </div>
