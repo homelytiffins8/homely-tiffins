@@ -878,7 +878,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>
-                Choose 2 Sabjis <span style={{ color: C.inkLight, fontWeight: 400 }}>({sabjiSel.length}/2 selected)</span>
+                Choose 2 Sabjis <span style={{ color: sabjiSel.length === 2 ? "#2E7D32" : C.inkLight, fontWeight: 700 }}>({sabjiSel.length}/2 selected)</span>
               </label>
               {sabjis.map(s => {
                 const disabled = !sabjiSel.includes(s.id) && sabjiSel.length >= 2;
@@ -895,6 +895,11 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
                   </label>
                 );
               })}
+              {sabjiSel.length < 2 && (
+                <div style={{ fontSize: 12, color: C.red, marginTop: 6, fontWeight: 600 }}>
+                  ⚠️ Please choose {2 - sabjiSel.length} more sabji{2 - sabjiSel.length > 1 ? "s" : ""} to continue
+                </div>
+              )}
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose Raita or Sweet</label>
@@ -962,13 +967,20 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
         {isMini && (
           <>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose 1 Sabji</label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>
+                Choose 1 Sabji <span style={{ color: miniValid ? "#2E7D32" : C.inkLight, fontWeight: 700 }}>({miniValid ? "1/1 selected" : "0/1 selected"})</span>
+              </label>
               {nonPremium.map(s => (
                 <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
                   <input type="radio" name="miniSabji" checked={miniSabji === s.id} onChange={() => setMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
                   {s.name}
                 </label>
               ))}
+              {!miniValid && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "#FDECEA", color: "#B71C1C", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                  ⚠️ Please choose a sabji to continue
+                </div>
+              )}
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
@@ -992,7 +1004,11 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
           disabled={isGold ? !goldValid : isMini ? !miniValid : false}
           onClick={handleAdd}
         >
-          Add to Cart · ₹{isGold ? planConfig.prices.gold : isStandard ? planConfig.prices.standard : planConfig.prices.mini}
+          {isGold && !goldValid
+            ? `Choose ${2 - sabjiSel.length} more sabji${2 - sabjiSel.length > 1 ? "s" : ""} to continue`
+            : isMini && !miniValid
+            ? "Choose a sabji to continue"
+            : `Add to Cart · ₹${isGold ? planConfig.prices.gold : isStandard ? planConfig.prices.standard : planConfig.prices.mini}`}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Cancel</button>
       </div>
