@@ -832,11 +832,13 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const [sweetOrRaita, setSweetOrRaita] = useState("raita");
   const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
 
-  // ── Homely Gold size (Medium / Large) ──
-  // Only offer a size the owner has enabled for today; if just one size is
-  // available, lock the selection to it instead of showing a choice.
+  // ── Homely Gold flow: two steps ──
+  // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
+  // Step 2 "size":  pick Medium (200ml) or Large (300ml) container
+  // Only offer a size the owner has enabled for today.
   const goldMediumOn = planConfig.enabled?.goldMedium !== false;
   const goldLargeOn = planConfig.enabled?.goldLarge !== false;
+  const [goldStep, setGoldStep] = useState("build");
   const [goldSize, setGoldSize] = useState(goldMediumOn ? "medium" : "large");
   const goldLargeSurcharge = planConfig.prices.goldLargeSurcharge || 0;
   const goldPrice = planConfig.prices.gold + (goldSize === "large" ? goldLargeSurcharge : 0);
@@ -878,7 +880,11 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   };
 
   const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : "Homely Mini";
-  const subtitle = isStandard ? "This is what's included — just confirm" : "Customize your thali";
+  const subtitle = isStandard
+    ? "This is what's included — just confirm"
+    : isGold
+    ? (goldStep === "build" ? "Step 1 of 2 · Build your tiffin" : "Step 2 of 2 · Choose container size")
+    : "Customize your thali";
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -887,31 +893,8 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
         <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>{title}</h2>
         <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 18 }}>{subtitle}</p>
 
-        {isGold && (
+        {isGold && goldStep === "build" && (
           <>
-            {goldMediumOn && goldLargeOn && (
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose Size</label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
-                  <input type="radio" name="goldSize" checked={goldSize === "medium"} onChange={() => setGoldSize("medium")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
-                  Medium · ₹{planConfig.prices.gold}
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
-                  <input type="radio" name="goldSize" checked={goldSize === "large"} onChange={() => setGoldSize("large")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
-                  Large · ₹{planConfig.prices.gold + goldLargeSurcharge}
-                </label>
-              </div>
-            )}
-            {!goldMediumOn && goldLargeOn && (
-              <div style={{ marginBottom: 16, fontSize: 12, color: C.inkMid, fontWeight: 600 }}>
-                Only Large available today · ₹{planConfig.prices.gold + goldLargeSurcharge}
-              </div>
-            )}
-            {goldMediumOn && !goldLargeOn && (
-              <div style={{ marginBottom: 16, fontSize: 12, color: C.inkMid, fontWeight: 600 }}>
-                Only Medium available today · ₹{planConfig.prices.gold}
-              </div>
-            )}
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose Bread</label>
               {BREAD_CHOICES.map(b => (
@@ -971,6 +954,38 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
                 {planConfig.salad}
               </label>
             </div>
+          </>
+        )}
+
+        {isGold && goldStep === "size" && (
+          <>
+            <div style={{ marginBottom: 16, padding: "10px 12px", background: C.cream, borderRadius: 10, fontSize: 12, color: C.inkMid, lineHeight: 1.5 }}>
+              ✓ Your tiffin is built — now pick a container size.
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 10 }}>Choose Size</label>
+              {goldMediumOn && (
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 12px", marginBottom: 8, fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${goldSize === "medium" ? C.saffron : C.border}`, borderRadius: 10, background: goldSize === "medium" ? "#FFF6EC" : C.white }}>
+                  <input type="radio" name="goldSize" checked={goldSize === "medium"} onChange={() => setGoldSize("medium")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>Medium</div>
+                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>200 ml container</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.saffron }}>₹{planConfig.prices.gold}</div>
+                </label>
+              )}
+              {goldLargeOn && (
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 12px", marginBottom: 8, fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${goldSize === "large" ? C.saffron : C.border}`, borderRadius: 10, background: goldSize === "large" ? "#FFF6EC" : C.white }}>
+                  <input type="radio" name="goldSize" checked={goldSize === "large"} onChange={() => setGoldSize("large")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>Large</div>
+                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>300 ml container</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.saffron }}>₹{planConfig.prices.gold + goldLargeSurcharge}</div>
+                </label>
+              )}
+            </div>
+            <button className="ht-btn btn-ghost btn-sm" style={{ marginBottom: 8 }} onClick={() => setGoldStep("build")}>← Edit tiffin</button>
           </>
         )}
 
@@ -1046,11 +1061,20 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 
         <button
           className="ht-btn btn-primary btn-full btn-lg"
-          disabled={isGold ? !goldValid : isMini ? !miniValid : false}
-          onClick={handleAdd}
+          disabled={isGold ? (goldStep === "build" ? !goldValid : false) : isMini ? !miniValid : false}
+          onClick={() => {
+            if (isGold && goldStep === "build") {
+              if (!goldValid) return;
+              setGoldStep("size");
+              return;
+            }
+            handleAdd();
+          }}
         >
-          {isGold && !goldValid
+          {isGold && goldStep === "build" && !goldValid
             ? `Choose ${2 - sabjiSel.length} more sabji${2 - sabjiSel.length > 1 ? "s" : ""} to continue`
+            : isGold && goldStep === "build"
+            ? "Continue → Choose Size"
             : isMini && !miniValid
             ? "Choose a sabji to continue"
             : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : planConfig.prices.mini}`}
