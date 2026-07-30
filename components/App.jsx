@@ -1595,6 +1595,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [rememberedPhone, setRememberedPhone] = useState("");
   const [ratingCardDismissed, setRatingCardDismissed] = useState(false);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  // Rating popup: shown after "Order Now" is tapped, before moving to the order page.
+  const [showRatingModal, setShowRatingModal] = useState(false);
   // Poll popup: holds the just-placed order while the poll modal is shown.
   const [pollOrder, setPollOrder] = useState(null);
 
@@ -1636,6 +1638,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       // to see the re-enabled button, think nothing happened, and tap Submit
       // again. Hiding locally makes the UI feel instant and unambiguous.
       setRatingCardDismissed(true);
+      setShowRatingModal(false);
+      setStep("order");
     } catch (err) {
       // On failure, keep the card visible so the customer can retry.
       // (Idempotency on the backend still prevents duplicate ratings.)
@@ -1900,7 +1904,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>
                           {planConfig.enabled?.goldMedium
-                            ? `₹${planConfig.prices.gold}${planConfig.enabled?.goldLarge ? "+" : ""}`
+                            ? `₹${planConfig.prices.gold}`
                             : `₹${planConfig.prices.gold + (planConfig.prices.goldLargeSurcharge || 0)}`}
                         </div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("gold")}>+ Add</button>
@@ -2235,7 +2239,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={() => setStep("order")} disabled={!kitchenOpen || !menuAvailable} style={{
+            <button onClick={() => { if (unratedOrder) { setShowRatingModal(true); } else { setStep("order"); } }} disabled={!kitchenOpen || !menuAvailable} style={{
               background: isDesktop ? HC.orange : "transparent",
               color: isDesktop ? "#fff" : HC.orange,
               border: `1.5px solid ${HC.orange}`,
@@ -2277,18 +2281,6 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
         )}
       </div>
-
-      {/* Rating card — returning customer with an unrated delivered order */}
-      {unratedOrder && (
-        <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
-          <RatingCard
-            order={unratedOrder}
-            onSubmit={handleSubmitRating}
-            onSkip={() => setRatingCardDismissed(true)}
-            submitting={ratingSubmitting}
-          />
-        </div>
-      )}
 
       {/* Kitchen closed / menu not published banners (only when relevant) */}
       {!kitchenOpen ? (
@@ -2588,6 +2580,21 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
       {showInvalidPhone && <InvalidPhoneModal onClose={() => setShowInvalidPhone(false)} />}
       {showContact && <ContactUsModal contactInfo={contactInfo} onSubmitMessage={onSubmitContactMessage} onClose={() => setShowContact(false)} />}
+
+      {/* Rating popup — shown after "Order Now" is tapped, before moving to the order page */}
+      {showRatingModal && unratedOrder && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) { setShowRatingModal(false); setStep("order"); } }}>
+          <div className="modal-sheet">
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+            <RatingCard
+              order={unratedOrder}
+              onSubmit={handleSubmitRating}
+              onSkip={() => { setRatingCardDismissed(true); setShowRatingModal(false); setStep("order"); }}
+              submitting={ratingSubmitting}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
