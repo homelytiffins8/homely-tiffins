@@ -2399,45 +2399,58 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       {/* ═══════ SECTION 3B — HOMELY GOLD LAUNCH BANNER ═══════ */}
       <div style={{ maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
         <div style={{
-          background: HC.card,
+          position: "relative",
+          aspectRatio: "3 / 4",
           borderRadius: 20,
-          border: `1px solid ${HC.dash}`,
-          boxShadow: "0 4px 14px rgba(59,42,26,0.10)",
           overflow: "hidden",
+          boxShadow: "0 6px 20px rgba(59,42,26,0.25)",
         }}>
           <img
             src={GOLD_BANNER_SRC}
             alt="Homely Gold"
             style={{
-              width: "100%",
-              aspectRatio: "1024 / 1229",
-              objectFit: "contain",
-              display: "block",
+              position: "absolute", inset: 0,
+              width: "100%", height: "100%",
+              objectFit: "cover",
+              objectPosition: "top",
             }}
           />
-          <div style={{ background: HC.brown, padding: "12px 16px 14px" }}>
+          <div style={{
+            position: "absolute", inset: 0,
+            background: "linear-gradient(to bottom, rgba(59,42,26,0.15) 0%, rgba(59,42,26,0.15) 40%, rgba(59,42,26,0.96) 78%, rgba(59,42,26,0.98) 100%)",
+          }} />
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 16 }}>
+            <div style={{
+              fontFamily: "'Nunito', sans-serif",
+              fontSize: 9,
+              letterSpacing: 1.5,
+              textTransform: "uppercase",
+              color: HC.orange,
+              fontWeight: 800,
+            }}>
+              New · Launching Now
+            </div>
             <div style={{
               fontFamily: "'Playfair Display', serif",
-              fontSize: 18,
+              fontSize: 22,
               fontWeight: 800,
-              color: "#F6EFE1",
+              color: "#fff",
+              margin: "2px 0 6px",
             }}>
-              Introducing Homely Gold
+              Homely Gold
             </div>
             <div style={{
               fontFamily: "'Nunito', sans-serif",
               fontSize: 11.5,
               color: "#F6EFE1",
               opacity: 0.85,
-              marginTop: 2,
               lineHeight: 1.35,
+              marginBottom: 10,
             }}>
               Premium homemade meals, crafted for the best and wholesome experience.
             </div>
 
-            <div style={{ height: 1, background: "rgba(224,115,26,0.28)", margin: "10px 0" }} />
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
               {[
                 { text: "Premium sabji every day", tag: true },
                 { text: "Desi ghee chapatis / parathas" },
@@ -2445,18 +2458,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                 { text: "Sweet and raita — choice of add-ons" },
                 { text: "Priority delivery+" },
               ].map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <div style={{
-                    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                    background: "rgba(224,115,26,0.16)",
+                    width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                    background: "rgba(224,115,26,0.2)",
                     border: `1px solid ${HC.orange}`,
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>
-                    <span style={{ color: HC.orange, fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>
+                    <span style={{ color: HC.orange, fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>
                   </div>
                   <span style={{
                     fontFamily: "'Nunito', sans-serif",
-                    fontSize: 12.5,
+                    fontSize: 12,
                     color: "#F6EFE1",
                   }}>
                     {item.text}
@@ -2465,7 +2478,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <span style={{
                       background: HC.orange,
                       color: HC.brown,
-                      fontSize: 7,
+                      fontSize: 6.5,
                       fontWeight: 800,
                       padding: "2px 6px",
                       borderRadius: 20,
@@ -2483,12 +2496,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               onClick={() => setStep("order")}
               style={{
                 width: "100%",
-                marginTop: 12,
                 background: HC.orange,
                 color: "#fff",
                 border: "none",
                 borderRadius: 10,
-                padding: "9px 0",
+                padding: "10px 0",
                 fontFamily: "'Nunito', sans-serif",
                 fontSize: 13,
                 fontWeight: 800,
