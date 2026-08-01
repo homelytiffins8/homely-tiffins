@@ -2442,8 +2442,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{
               fontFamily: "'Nunito', sans-serif",
               fontSize: 11.5,
+              fontWeight: 700,
               color: "#F6EFE1",
-              opacity: 0.85,
               lineHeight: 1.35,
               marginBottom: 10,
             }}>
@@ -2470,6 +2470,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   <span style={{
                     fontFamily: "'Nunito', sans-serif",
                     fontSize: 12,
+                    fontWeight: 700,
                     color: "#F6EFE1",
                   }}>
                     {item.text}
