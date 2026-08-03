@@ -2437,7 +2437,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               color: "#F6EFE1",
               marginTop: 2,
             }}>
-              Try Once · One-Time Must-Try
+              One Tiffin. Zero Regrets.
             </div>
             <div style={{
               fontFamily: "'Playfair Display', serif",
