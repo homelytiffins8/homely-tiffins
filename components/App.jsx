@@ -2431,6 +2431,15 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               New · Launching Now
             </div>
             <div style={{
+              fontFamily: "'Nunito', sans-serif",
+              fontSize: 11,
+              fontWeight: 800,
+              color: "#F6EFE1",
+              marginTop: 2,
+            }}>
+              Try Once · One-Time Must-Try
+            </div>
+            <div style={{
               fontFamily: "'Playfair Display', serif",
               fontSize: 22,
               fontWeight: 800,
@@ -2493,42 +2502,23 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => setStep("order")}
-                style={{
-                  flex: 1,
-                  background: HC.orange,
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 10,
-                  padding: "10px 0",
-                  fontFamily: "'Nunito', sans-serif",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Order Now
-              </button>
-              <button
-                onClick={() => setStep("order")}
-                style={{
-                  flex: 1,
-                  background: "rgba(255,255,255,0.08)",
-                  color: "#fff",
-                  border: "1px solid rgba(246,239,225,0.55)",
-                  borderRadius: 10,
-                  padding: "10px 0",
-                  fontFamily: "'Nunito', sans-serif",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Try It Once
-              </button>
-            </div>
+            <button
+              onClick={() => setStep("order")}
+              style={{
+                width: "100%",
+                background: HC.orange,
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                padding: "10px 0",
+                fontFamily: "'Nunito', sans-serif",
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Order Now
+            </button>
           </div>
         </div>
       </div>
