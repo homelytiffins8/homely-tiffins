@@ -2428,16 +2428,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               color: HC.orange,
               fontWeight: 800,
             }}>
-              New · Launching Now
-            </div>
-            <div style={{
-              fontFamily: "'Nunito', sans-serif",
-              fontSize: 11,
-              fontWeight: 800,
-              color: "#F6EFE1",
-              marginTop: 2,
-            }}>
-              One Tiffin. Zero Regrets.
+              Introducing
             </div>
             <div style={{
               fontFamily: "'Playfair Display', serif",
@@ -3502,17 +3493,18 @@ function printKOT(order) {
     font-family: 'Courier New', Courier, monospace;
     color: #000;
     padding: 6mm 4mm;
+    font-weight: 700;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .center { text-align: center; }
   .divider { border-top: 1px dashed #000; margin: 6px 0; }
-  .row { font-size: 13px; line-height: 1.55; word-break: break-word; }
+  .row { font-size: 13px; line-height: 1.55; word-break: break-word; font-weight: 700; }
   .label { font-weight: 700; }
   table { width: 100%; border-collapse: collapse; }
-  td { font-size: 14px; padding: 3px 0; vertical-align: top; }
+  td { font-size: 14px; padding: 3px 0; vertical-align: top; font-weight: 700; }
   td.qty { width: 34px; font-weight: 800; }
-  td.name { font-weight: 600; }
+  td.name { font-weight: 700; }
   .note { font-size: 13px; font-weight: 700; border: 1.5px solid #000; padding: 5px 6px; margin-top: 6px; line-height: 1.4; }
   .note-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
 </style>
