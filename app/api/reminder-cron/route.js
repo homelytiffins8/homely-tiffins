@@ -36,9 +36,9 @@ async function triggerTwilioCall(stage) {
     throw new Error("Missing Twilio environment variables");
   }
 
-  const twiml = `<Response><Say voice="alice">${stage.say} ${stage.say}</Say></Response>`;
+  const twimlUrl = `https://twimlets.com/message?Message%5B0%5D=${encodeURIComponent(stage.say)}&Message%5B1%5D=${encodeURIComponent(stage.say)}`;
 
-  const body = new URLSearchParams({ To: to, From: from, Twiml: twiml });
+  const body = new URLSearchParams({ To: to, From: from, Url: twimlUrl });
   const auth = Buffer.from(`${sid}:${token}`).toString("base64");
 
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
