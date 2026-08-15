@@ -1585,6 +1585,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [showModal, setShowModal] = useState(false);
   const [showInvalidPhone, setShowInvalidPhone] = useState(false);
   const [activeOrder, setActiveOrder] = useState(null);
+  // Ticking clock so "stuck pending order" banners update live without a refresh
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
   const [lookupPhone, setLookupPhone] = useState("");
 
   // ── Rating state ──
@@ -1764,6 +1770,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   if (step === "track" && activeOrder) {
     const live = orders.find(o => o.id === activeOrder.id) || activeOrder;
     const isRejected = live.status === "rejected";
+    const stuckPending = live.status === "pending" &&
+      (nowTick - new Date(live.createdAt).getTime()) > 15 * 60 * 1000;
     return (
       <div style={{ minHeight: "100vh", background: C.cream, padding: "24px 16px" }}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
@@ -1780,6 +1788,21 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
             <OrderTracker status={live.status} />
           </div>
+
+          {stuckPending && (
+            <div className="ht-card slide-in" style={{
+              padding: 16, marginBottom: 16,
+              background: "#FDECEA", borderColor: "#D32F2F",
+            }}>
+              <p style={{ fontSize: 13, color: "#B71C1C", fontWeight: 700, lineHeight: 1.5, margin: 0 }}>
+                ⚠️ The order is not responded due to some technical error. Please call directly on{" "}
+                <a href="tel:8006222000" style={{ color: "#B71C1C", textDecoration: "underline" }}>
+                  8006222000
+                </a>{" "}
+                and place your order.
+              </p>
+            </div>
+          )}
 
           {!isRejected && (
             <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 16 }}>
@@ -2348,7 +2371,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   fontFamily: "'Playfair Display', Georgia, serif",
                   fontWeight: 800, fontSize: 15, color: HC.brown, lineHeight: 1.2, marginTop: 2,
                 }}>
-                  {trackActiveOrder.status === "pending" && "Order received, aunty starting soon 🍳"}
+                  {trackActiveOrder.status === "pending" &&
+                    ((nowTick - new Date(trackActiveOrder.createdAt).getTime()) > 15 * 60 * 1000
+                      ? "⚠️ Technical error — call 8006222000"
+                      : "Order received, aunty starting soon 🍳")}
                   {trackActiveOrder.status === "preparing" && "Aunty is cooking your tiffin 🍲"}
                   {trackActiveOrder.status === "dispatched" && "On its way to you 🛵"}
                 </div>
