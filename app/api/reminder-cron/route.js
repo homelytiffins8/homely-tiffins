@@ -78,6 +78,7 @@ export async function GET(request) {
   const today = todayStr();
   const now = Date.now();
   const callsFired = [];
+  const errors = [];
   let changed = false;
 
   for (const order of orders) {
@@ -98,6 +99,7 @@ export async function GET(request) {
           callsFired.push({ orderId: order.id, stage: stage.key });
         } catch (err) {
           console.error("Reminder call failed:", err.message);
+          errors.push({ orderId: order.id, stage: stage.key, error: err.message });
         }
       }
     }
@@ -109,6 +111,5 @@ export async function GET(request) {
       .upsert({ key: ORDERS_KEY, value: orders, updated_at: new Date().toISOString() }, { onConflict: "key" });
   }
 
-  return Response.json({ ok: true, callsFired, checked: orders.length });
+  return Response.json({ ok: true, callsFired, errors, checked: orders.length });
 }
-
