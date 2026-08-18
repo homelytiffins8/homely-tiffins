@@ -3525,7 +3525,7 @@ function printKOT(order) {
   }
   .center { text-align: center; }
   .divider { border-top: 1px dashed #000; margin: 6px 0; }
-  .row { font-size: 13px; line-height: 1.55; word-break: break-word; font-weight: 700; }
+  .row { font-size: 16px; line-height: 1.55; word-break: break-word; font-weight: 700; }
   .label { font-weight: 700; }
   table { width: 100%; border-collapse: collapse; }
   td { font-size: 14px; padding: 3px 0; vertical-align: top; font-weight: 700; }
@@ -3538,6 +3538,7 @@ function printKOT(order) {
 <body>
   <div class="row"><span class="label">Name:</span> ${esc(order.customerName)}</div>
   <div class="row"><span class="label">Deliver to:</span> ${esc(address)}</div>
+  <div class="row"><span class="label">Phone:</span> ${esc(order.phone)}</div>
   <div class="divider"></div>
   <table>${itemRows}</table>
   ${hasNote ? `<div class="note"><div class="note-label">Special Instructions</div>${esc(order.specialInstructions.trim())}</div>` : ""}
@@ -3616,9 +3617,11 @@ function OrderCard({ order, onAdvance, onReject, now }) {
       </div>
 
       <div style={{ background: C.cream, borderRadius: 8, padding: "8px 12px", marginBottom: hasInstructions ? 8 : 12 }}>
-        {order.items.map(i => (
-          <span key={i.id} style={{ fontSize: 12, color: C.inkMid, marginRight: 8 }}>{i.name} ×{i.qty}</span>
-        ))}
+        <ul style={{ margin: 0, paddingLeft: 18, listStyleType: "disc" }}>
+          {order.items.map(i => (
+            <li key={i.id} style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.6 }}>{i.name} ×{i.qty}</li>
+          ))}
+        </ul>
       </div>
 
       {hasInstructions && (
@@ -3969,7 +3972,220 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
 // ─────────────────────────────────────────────
 // ANALYTICS PANEL
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// SALES DASHBOARD  (Today / Weekly / Monthly)
+// ─────────────────────────────────────────────
+// Prep time  = preparingAt → dispatchedAt  (actual cooking time)
+// Delivery time = dispatchedAt → deliveredAt
+// Both are only computed over orders that HAVE both timestamps — older
+// orders placed before this feature shipped won't have them, and are
+// simply excluded from the average rather than breaking it.
+function avgDurationMinutes(orders, fromField, toField) {
+  const durations = orders
+    .filter(o => o[fromField] && o[toField])
+    .map(o => (new Date(o[toField]) - new Date(o[fromField])) / 60000)
+    .filter(m => m >= 0 && m < 24 * 60); // sanity guard against bad data
+  if (!durations.length) return null;
+  return durations.reduce((s, m) => s + m, 0) / durations.length;
+}
+function fmtMinutes(m) {
+  if (m == null) return "—";
+  if (m < 60) return `${Math.round(m)} min`;
+  const h = Math.floor(m / 60), mm = Math.round(m % 60);
+  return mm ? `${h}h ${mm}m` : `${h}h`;
+}
+
+function SalesDashboardCard({ allOrders }) {
+  const [period, setPeriod] = useState("today"); // "today" | "week" | "month"
+
+  const { rangeOrders, label, trend } = (() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (period === "today") {
+      const ds = todayStr();
+      const orders = allOrders.filter(o => o.date === ds && o.status !== "rejected");
+      // Hourly trend for today (orders placed per 3-hr block, 8am–11pm)
+      const blocks = [[8,11,"8-11am"],[11,14,"11-2pm"],[14,17,"2-5pm"],[17,20,"5-8pm"],[20,23,"8-11pm"]];
+      const trend = blocks.map(([from, to, lbl]) => {
+        const cnt = orders.filter(o => {
+          const h = new Date(o.createdAt).getHours();
+          return h >= from && h < to;
+        }).length;
+        return { label: lbl, count: cnt, revenue: orders.filter(o => { const h = new Date(o.createdAt).getHours(); return h >= from && h < to; }).reduce((s, o) => s + o.total, 0) };
+      });
+      return { rangeOrders: orders, label: "Today", trend };
+    }
+    if (period === "week") {
+      const start = getWeekStart();
+      const orders = allOrders.filter(o => o.date >= start && o.status !== "rejected");
+      const trend = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start); d.setDate(d.getDate() + i);
+        const ds = d.toISOString().split("T")[0];
+        if (ds > todayStr()) return null;
+        const dayOrders = orders.filter(o => o.date === ds);
+        return { label: d.toLocaleDateString("en-IN", { weekday: "short" }), count: dayOrders.length, revenue: dayOrders.reduce((s, o) => s + o.total, 0) };
+      }).filter(Boolean);
+      return { rangeOrders: orders, label: "This Week", trend };
+    }
+    // month
+    const start = getMonthStart();
+    const orders = allOrders.filter(o => o.date >= start && o.status !== "rejected");
+    // weekly buckets within the month so far
+    const weeks = {};
+    orders.forEach(o => {
+      const d = new Date(o.date);
+      const wk = Math.ceil(d.getDate() / 7);
+      weeks[wk] = weeks[wk] || { count: 0, revenue: 0 };
+      weeks[wk].count += 1; weeks[wk].revenue += o.total;
+    });
+    const trend = Object.keys(weeks).sort((a, b) => a - b).map(wk => ({ label: `Week ${wk}`, count: weeks[wk].count, revenue: weeks[wk].revenue }));
+    return { rangeOrders: orders, label: "This Month", trend };
+  })();
+
+  const deliveredOrRejected = allOrders.filter(o => {
+    if (period === "today") return o.date === todayStr();
+    if (period === "week") return o.date >= getWeekStart();
+    return o.date >= getMonthStart();
+  });
+
+  const totalOrders = rangeOrders.length;
+  const revenue = rangeOrders.reduce((s, o) => s + o.total, 0);
+  const aov = totalOrders ? revenue / totalOrders : 0;
+  const rejectedCount = deliveredOrRejected.filter(o => o.status === "rejected").length;
+
+  const itemMap = {};
+  rangeOrders.forEach(o => o.items.forEach(i => {
+    if (!itemMap[i.name]) itemMap[i.name] = { qty: 0, revenue: 0 };
+    itemMap[i.name].qty += i.qty;
+    itemMap[i.name].revenue += (i.price || 0) * i.qty;
+  }));
+  const itemRows = Object.entries(itemMap).sort((a, b) => b[1].qty - a[1].qty);
+
+  const towerMap = {};
+  rangeOrders.forEach(o => { towerMap[o.tower] = (towerMap[o.tower] || 0) + 1; });
+  const towerRows = Object.entries(towerMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const avgPrep = avgDurationMinutes(rangeOrders, "preparingAt", "dispatchedAt");
+  const avgDeliv = avgDurationMinutes(rangeOrders, "dispatchedAt", "deliveredAt");
+  const prepSampleSize = rangeOrders.filter(o => o.preparingAt && o.dispatchedAt).length;
+  const delivSampleSize = rangeOrders.filter(o => o.dispatchedAt && o.deliveredAt).length;
+
+  const maxTrendVal = Math.max(...trend.map(t => t.revenue), 1);
+
+  return (
+    <div>
+      {/* Period switcher */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[["today", "Today"], ["week", "Weekly"], ["month", "Monthly"]].map(([key, lbl]) => (
+          <button
+            key={key}
+            onClick={() => setPeriod(key)}
+            className="ht-btn btn-sm"
+            style={{
+              flex: 1,
+              background: period === key ? C.saffron : C.white,
+              color: period === key ? C.white : C.inkMid,
+              border: `1.5px solid ${period === key ? C.saffron : C.border}`,
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>💰 Revenue ({label})</p>
+          <p style={{ fontSize: 22, fontWeight: 800, color: C.green }}>₹{revenue.toLocaleString("en-IN")}</p>
+        </div>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>📦 Orders</p>
+          <p style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>{totalOrders}{rejectedCount ? <span style={{ fontSize: 12, fontWeight: 600, color: C.red }}> ({rejectedCount} rejected)</span> : null}</p>
+        </div>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>🧾 Avg Order Value</p>
+          <p style={{ fontSize: 22, fontWeight: 800, color: C.saffron }}>₹{aov.toFixed(0)}</p>
+        </div>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>🏢 Towers Served</p>
+          <p style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>{Object.keys(towerMap).length}</p>
+        </div>
+      </div>
+
+      {/* Prep / delivery time */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>👨‍🍳 Avg Prep Time</p>
+          <p style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{fmtMinutes(avgPrep)}</p>
+          <p style={{ fontSize: 10, color: C.inkLight, marginTop: 2 }}>{prepSampleSize ? `from ${prepSampleSize} order${prepSampleSize !== 1 ? "s" : ""}` : "no data yet"}</p>
+        </div>
+        <div className="ht-card" style={{ padding: 14 }}>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 4 }}>🛵 Avg Delivery Time</p>
+          <p style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{fmtMinutes(avgDeliv)}</p>
+          <p style={{ fontSize: 10, color: C.inkLight, marginTop: 2 }}>{delivSampleSize ? `from ${delivSampleSize} order${delivSampleSize !== 1 ? "s" : ""}` : "no data yet"}</p>
+        </div>
+      </div>
+
+      {/* Trend chart */}
+      <div className="ht-card" style={{ padding: 16, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>📈 Revenue Trend</h3>
+        {trend.length === 0 ? <p style={{ fontSize: 12, color: C.inkLight }}>No data yet</p> : (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100 }}>
+            {trend.map((t, i) => (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 9, color: C.inkLight }}>{t.revenue > 0 ? `₹${t.revenue}` : ""}</div>
+                <div style={{ width: "100%", height: Math.max((t.revenue / maxTrendVal) * 60, t.revenue > 0 ? 4 : 1), background: t.revenue > 0 ? C.saffron : C.border, borderRadius: 3 }} />
+                <div style={{ fontSize: 9, color: C.inkMid, fontWeight: 600 }}>{t.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Item-wise sales */}
+      <div className="ht-card" style={{ padding: 16, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>🍽️ Item-wise Sales</h3>
+        {itemRows.length === 0 ? <p style={{ fontSize: 12, color: C.inkLight }}>No data yet</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left", color: C.inkMid, fontWeight: 600 }}>Item</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: C.inkMid, fontWeight: 600 }}>Qty Sold</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: C.inkMid, fontWeight: 600 }}>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemRows.map(([name, d], i) => (
+                  <tr key={name} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.white : C.cream }}>
+                    <td style={{ padding: "6px 8px", color: C.ink, fontWeight: 600 }}>{name}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", color: C.saffron, fontWeight: 700 }}>{d.qty}×</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", color: C.green, fontWeight: 700 }}>₹{d.revenue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Tower-wise */}
+      <div className="ht-card" style={{ padding: 16 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>🏢 Tower-wise Orders</h3>
+        {towerRows.length === 0 ? <p style={{ fontSize: 12, color: C.inkLight }}>No data yet</p> :
+          towerRows.map(([tower, count]) => (
+            <div key={tower} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0" }}>
+              <span style={{ color: C.inkMid }}>{tower}</span>
+              <span style={{ fontWeight: 700, color: C.green }}>{count} orders</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData }) {
+  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales"
   const EXPORT_PIN = "2018";
 
   // Combine archived history with today's live orders, de-duplicated by order id.
@@ -4052,6 +4268,28 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
 
   return (
     <div style={{ padding: "20px 0" }}>
+      {/* Sub-tab switcher: Overview vs Sales Dashboard */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[["overview", "📊 Overview"], ["sales", "📈 Sales Dashboard"]].map(([key, lbl]) => (
+          <button
+            key={key}
+            onClick={() => setAnalyticsTab(key)}
+            className="ht-btn"
+            style={{
+              flex: 1,
+              background: analyticsTab === key ? C.ink : C.white,
+              color: analyticsTab === key ? C.white : C.inkMid,
+              border: `1.5px solid ${analyticsTab === key ? C.ink : C.border}`,
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {analyticsTab === "sales" && <SalesDashboardCard allOrders={allOrders} />}
+
+      {analyticsTab === "overview" && <>
       <div className="ht-card" style={{ padding: 20, marginBottom: 20 }}>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>📥 Export to Excel</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 14 }}>🔒 PIN-protected. Each download asks for your PIN.</p>
@@ -4295,6 +4533,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -5744,7 +5983,21 @@ export default function App() {
       return;
     }
 
-    const updated = base.map(o => o.id === orderId ? { ...o, status: nextStatus } : o);
+    // Stamp the timestamp for this status transition (used by the Sales
+    // Dashboard to compute avg prep/delivery time). Only ever set once per
+    // order — if it's already there (e.g. re-merge from another device),
+    // it's left untouched rather than overwritten.
+    const stampField = nextStatus === "preparing" ? "preparingAt"
+      : nextStatus === "dispatched" ? "dispatchedAt"
+      : nextStatus === "delivered" ? "deliveredAt"
+      : null;
+    const nowIso = new Date().toISOString();
+    const updated = base.map(o => {
+      if (o.id !== orderId) return o;
+      const next = { ...o, status: nextStatus };
+      if (stampField && !next[stampField]) next[stampField] = nowIso;
+      return next;
+    });
     setTodayOrders(updated);
     await save(KEYS.todayOrders, updated);
 
