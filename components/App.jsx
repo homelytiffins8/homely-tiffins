@@ -1006,12 +1006,19 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
               ))}
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose your base</label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                4 Chapatis
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Rice</label>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 8, fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${standardBase === "rice" ? C.saffron : C.border}`, borderRadius: 10, background: standardBase === "rice" ? "#FFF6EC" : C.white }}>
                 <input type="radio" name="standardBase" checked={standardBase === "rice"} onChange={() => setStandardBase("rice")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700 }}>Steamed rice</div>
-                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Default · 4 chapatis</div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Default</div>
                 </div>
               </label>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${standardBase === "chapati" ? C.saffron : C.border}`, borderRadius: 10, background: standardBase === "chapati" ? "#FFF6EC" : C.white }}>
