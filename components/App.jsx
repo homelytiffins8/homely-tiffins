@@ -3529,6 +3529,50 @@ const STATUS_LABEL = { pending: "Accept & Prepare", preparing: "Mark Dispatched"
 // Ticket shows: customer name, delivery address, ordered items,
 // and special instructions (only when present).
 // ─────────────────────────────────────────────
+// Parses the composed cart-item name string (built in PlanChoiceModal) into
+// a structured shape so the KOT can print sub-bullets instead of one long line.
+// Falls back to a plain title (no sub-bullets) for anything that doesn't match
+// a known Homely Gold / Standard / Mini pattern (e.g. a la carte menu items).
+function parseKotItem(rawName) {
+  const name = String(rawName || "");
+
+  // Homely Gold (Medium|Large) — bread, sabji1 + sabji2, rice, raita/sweet, salad
+  let m = name.match(/^Homely Gold \(([^)]+)\) — (.+)$/);
+  if (m) {
+    const size = m[1];
+    const [bread, sabjis, rice, raitaSweet, salad] = m[2].split(", ");
+    return {
+      title: `Homely Gold — ${size}`,
+      sub: [bread, sabjis, raitaSweet, rice, salad].filter(Boolean),
+    };
+  }
+
+  // Homely Standard [(2 chapatis extra)] — ...
+  m = name.match(/^Homely Standard(?: \(([^)]+)\))? — /);
+  if (m) {
+    const variant = m[1];
+    return {
+      title: "Homely Standard",
+      inline: variant ? "with 2 Extra Chapati" : "with Rice",
+    };
+  }
+
+  // Homely Mini [(Rice)] — breadOrRice, sabji, salad
+  m = name.match(/^Homely Mini(?: \(([^)]+)\))? — (.+)$/);
+  if (m) {
+    const parts = m[2].split(", ");
+    const breadOrRice = parts[0];
+    const sabji = parts[1];
+    return {
+      title: "Homely Mini",
+      sub: [sabji, breadOrRice].filter(Boolean),
+    };
+  }
+
+  // Not a plan item (e.g. a la carte) — print as-is, no sub-bullets.
+  return { title: name };
+}
+
 function printKOT(order) {
   if (!order) return;
 
@@ -3540,8 +3584,21 @@ function printKOT(order) {
   const address = `${order.tower} · Flat ${order.flat}`;
   const hasNote = order.specialInstructions && order.specialInstructions.trim().length > 0;
 
-  const itemRows = (order.items || [])
-    .map(i => `<tr><td class="qty">${esc(i.qty)}×</td><td class="name">${esc(i.name)}</td></tr>`)
+  const itemBlocks = (order.items || [])
+    .map(i => {
+      const parsed = parseKotItem(i.name);
+      const subHtml = (parsed.sub || [])
+        .map(line => `<div>${esc(line)}</div>`)
+        .join("");
+      const inlineHtml = parsed.inline
+        ? `<div class="item-inline">(${esc(parsed.inline)})</div>`
+        : "";
+      return `<div class="item-block">
+        <div class="item-head"><span>${esc(i.qty)}× ${esc(parsed.title)}</span></div>
+        ${inlineHtml}
+        ${subHtml ? `<div class="item-sub">${subHtml}</div>` : ""}
+      </div>`;
+    })
     .join("");
 
   const html = `<!DOCTYPE html>
@@ -3563,15 +3620,16 @@ function printKOT(order) {
     print-color-adjust: exact;
   }
   .center { text-align: center; }
-  .divider { border-top: 1px dashed #000; margin: 6px 0; }
-  .row { font-size: 16px; line-height: 1.55; word-break: break-word; font-weight: 700; }
+  .divider { border-top: 1px dashed #000; margin: 8px 0; }
+  .row { font-size: 19px; line-height: 1.55; word-break: break-word; font-weight: 700; }
   .label { font-weight: 700; }
-  table { width: 100%; border-collapse: collapse; }
-  td { font-size: 14px; padding: 3px 0; vertical-align: top; font-weight: 700; }
-  td.qty { width: 34px; font-weight: 800; }
-  td.name { font-weight: 700; }
-  .note { font-size: 13px; font-weight: 700; border: 1.5px solid #000; padding: 5px 6px; margin-top: 6px; line-height: 1.4; }
-  .note-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .item-block { margin-bottom: 12px; }
+  .item-head { font-size: 18px; font-weight: 800; word-break: break-word; }
+  .item-sub { font-size: 16px; font-weight: 700; padding-left: 14px; margin-top: 3px; line-height: 1.5; }
+  .item-sub div::before { content: "› "; }
+  .item-inline { font-size: 16px; font-weight: 700; padding-left: 14px; margin-top: 2px; }
+  .note { font-size: 16px; font-weight: 700; border: 1.5px solid #000; padding: 5px 6px; margin-top: 6px; line-height: 1.4; }
+  .note-label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -3579,7 +3637,7 @@ function printKOT(order) {
   <div class="row"><span class="label">Deliver to:</span> ${esc(address)}</div>
   <div class="row"><span class="label">Phone:</span> ${esc(order.phone)}</div>
   <div class="divider"></div>
-  <table>${itemRows}</table>
+  ${itemBlocks}
   ${hasNote ? `<div class="note"><div class="note-label">Special Instructions</div>${esc(order.specialInstructions.trim())}</div>` : ""}
   <script>
     setTimeout(function () {
