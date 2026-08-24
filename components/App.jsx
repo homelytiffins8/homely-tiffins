@@ -131,7 +131,7 @@ function defaultPlanConfig() {
     raita: "",
     sweet: "",
     // gold = Medium price (base). goldLargeSurcharge = flat ₹ added on top for Large.
-    prices: { gold: 199, goldLargeSurcharge: 20, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
+    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
     // Per-variant on/off (owner can hide a plan if stocked out for the day).
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
@@ -834,7 +834,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 
   // ── Homely Gold flow: two steps ──
   // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
-  // Step 2 "size":  pick Medium (200ml) or Large (300ml) container
+  // Step 2 "size":  pick Medium (Disposable Thali) or Large (300ml container)
   // Only offer a size the owner has enabled for today.
   const goldMediumOn = planConfig.enabled?.goldMedium !== false;
   const goldLargeOn = planConfig.enabled?.goldLarge !== false;
@@ -969,7 +969,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
                   <input type="radio" name="goldSize" checked={goldSize === "medium"} onChange={() => setGoldSize("medium")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700 }}>Medium</div>
-                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>200 ml container</div>
+                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Served in Disposable Thali</div>
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: C.saffron }}>₹{planConfig.prices.gold}</div>
                 </label>
@@ -2474,6 +2474,20 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               marginBottom: 10,
             }}>
               Premium homemade meals, crafted for the best and wholesome experience.
+            </div>
+
+            <div style={{
+              display: "inline-block",
+              fontFamily: "'Nunito', sans-serif",
+              fontSize: 11,
+              fontWeight: 800,
+              color: HC.brown,
+              background: HC.orange,
+              padding: "3px 9px",
+              borderRadius: 20,
+              marginBottom: 10,
+            }}>
+              Now starts at ₹199
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
