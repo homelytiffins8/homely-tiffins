@@ -131,7 +131,7 @@ function defaultPlanConfig() {
     raita: "",
     sweet: "",
     // gold = Medium price (base). goldLargeSurcharge = flat ₹ added on top for Large.
-    prices: { gold: 199, goldLargeSurcharge: 20, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
+    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
     // Per-variant on/off (owner can hide a plan if stocked out for the day).
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
@@ -831,10 +831,12 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const [sabjiSel, setSabjiSel] = useState([]); // Gold: up to 2 sabji ids
   const [sweetOrRaita, setSweetOrRaita] = useState("raita");
   const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
+  const [standardBase, setStandardBase] = useState("rice"); // "rice" | "chapati"
+  const [miniBase, setMiniBase] = useState("chapati"); // "chapati" | "rice"
 
   // ── Homely Gold flow: two steps ──
   // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
-  // Step 2 "size":  pick Medium (200ml) or Large (300ml) container
+  // Step 2 "size":  pick Medium (Disposable Thali) or Large (300ml container)
   // Only offer a size the owner has enabled for today.
   const goldMediumOn = planConfig.enabled?.goldMedium !== false;
   const goldLargeOn = planConfig.enabled?.goldLarge !== false;
@@ -865,16 +867,19 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
       const name = `Homely Gold (${sizeLabel}) — ${breadLabel}, ${chosenSabjis.map(s => s.name).join(" + ")}, ${planConfig.rice}, ${sweetRaitaLabel}, ${planConfig.salad}`;
       onAdd(id, name, goldPrice);
     } else if (isStandard) {
-      // Standard is a fixed configuration — nothing to choose. The dialog is
-      // just a confirmation of what's included.
-      const id = "plan-standard";
-      const name = `Homely Standard — 4 Chapati, ${nonPremium[0].name} + ${nonPremium[1].name}, Steamed Rice, Standard Salad`;
+      // Standard is fixed except for a rice ↔ 2 extra chapati swap; price is unchanged.
+      const id = standardBase === "chapati" ? "plan-standard:chapati" : "plan-standard";
+      const name = standardBase === "chapati"
+        ? `Homely Standard (2 chapatis extra) — 6 Chapati, ${nonPremium[0].name} + ${nonPremium[1].name}, Standard Salad`
+        : `Homely Standard — 4 Chapati, ${nonPremium[0].name} + ${nonPremium[1].name}, Steamed Rice, Standard Salad`;
       onAdd(id, name, planConfig.prices.standard);
     } else if (isMini) {
       if (!miniValid) return;
       const sabji = nonPremium.find(s => s.id === miniSabji);
-      const id = `mini:${miniSabji}`;
-      const name = `Homely Mini — 4 Chapati, ${sabji.name}, Standard Salad`;
+      const id = miniBase === "rice" ? `mini:${miniSabji}:rice` : `mini:${miniSabji}`;
+      const name = miniBase === "rice"
+        ? `Homely Mini (Rice) — Steamed Rice, ${sabji.name}, Standard Salad`
+        : `Homely Mini — 4 Chapati, ${sabji.name}, Standard Salad`;
       onAdd(id, name, planConfig.prices.mini);
     }
   };
@@ -969,7 +974,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
                   <input type="radio" name="goldSize" checked={goldSize === "medium"} onChange={() => setGoldSize("medium")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700 }}>Medium</div>
-                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>200 ml container</div>
+                    <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Served in Disposable Thali</div>
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: C.saffron }}>₹{planConfig.prices.gold}</div>
                 </label>
@@ -1009,9 +1014,19 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Rice</label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
-                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
-                Steamed Rice
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 8, fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${standardBase === "rice" ? C.saffron : C.border}`, borderRadius: 10, background: standardBase === "rice" ? "#FFF6EC" : C.white }}>
+                <input type="radio" name="standardBase" checked={standardBase === "rice"} onChange={() => setStandardBase("rice")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>Steamed rice</div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Default</div>
+                </div>
+              </label>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${standardBase === "chapati" ? C.saffron : C.border}`, borderRadius: 10, background: standardBase === "chapati" ? "#FFF6EC" : C.white }}>
+                <input type="radio" name="standardBase" checked={standardBase === "chapati"} onChange={() => setStandardBase("chapati")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>2 extra chapatis</div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Swap rice for chapatis · 6 chapatis total</div>
+                </div>
               </label>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -1043,10 +1058,20 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
               )}
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
-                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
-                4 Chapatis
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose your base</label>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 8, fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${miniBase === "chapati" ? C.saffron : C.border}`, borderRadius: 10, background: miniBase === "chapati" ? "#FFF6EC" : C.white }}>
+                <input type="radio" name="miniBase" checked={miniBase === "chapati"} onChange={() => setMiniBase("chapati")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>4 chapatis</div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Default</div>
+                </div>
+              </label>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", fontSize: 14, color: C.ink, cursor: "pointer", border: `2px solid ${miniBase === "rice" ? C.saffron : C.border}`, borderRadius: 10, background: miniBase === "rice" ? "#FFF6EC" : C.white }}>
+                <input type="radio" name="miniBase" checked={miniBase === "rice"} onChange={() => setMiniBase("rice")} style={{ accentColor: C.saffron, width: 16, height: 16, marginTop: 2 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>Steamed rice</div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginTop: 2 }}>Swap chapatis for rice</div>
+                </div>
               </label>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -2476,6 +2501,20 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               Premium homemade meals, crafted for the best and wholesome experience.
             </div>
 
+            <div style={{
+              display: "inline-block",
+              fontFamily: "'Nunito', sans-serif",
+              fontSize: 11,
+              fontWeight: 800,
+              color: HC.brown,
+              background: HC.orange,
+              padding: "3px 9px",
+              borderRadius: 20,
+              marginBottom: 10,
+            }}>
+              Now starts at ₹199
+            </div>
+
             <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
               {[
                 { text: "Premium sabji every day", tag: true },
@@ -3490,6 +3529,50 @@ const STATUS_LABEL = { pending: "Accept & Prepare", preparing: "Mark Dispatched"
 // Ticket shows: customer name, delivery address, ordered items,
 // and special instructions (only when present).
 // ─────────────────────────────────────────────
+// Parses the composed cart-item name string (built in PlanChoiceModal) into
+// a structured shape so the KOT can print sub-bullets instead of one long line.
+// Falls back to a plain title (no sub-bullets) for anything that doesn't match
+// a known Homely Gold / Standard / Mini pattern (e.g. a la carte menu items).
+function parseKotItem(rawName) {
+  const name = String(rawName || "");
+
+  // Homely Gold (Medium|Large) — bread, sabji1 + sabji2, rice, raita/sweet, salad
+  let m = name.match(/^Homely Gold \(([^)]+)\) — (.+)$/);
+  if (m) {
+    const size = m[1];
+    const [bread, sabjis, rice, raitaSweet, salad] = m[2].split(", ");
+    return {
+      title: `Homely Gold — ${size}`,
+      sub: [bread, sabjis, raitaSweet, rice, salad].filter(Boolean),
+    };
+  }
+
+  // Homely Standard [(2 chapatis extra)] — ...
+  m = name.match(/^Homely Standard(?: \(([^)]+)\))? — /);
+  if (m) {
+    const variant = m[1];
+    return {
+      title: "Homely Standard",
+      inline: variant ? "with 2 Extra Chapati" : "with Rice",
+    };
+  }
+
+  // Homely Mini [(Rice)] — breadOrRice, sabji, salad
+  m = name.match(/^Homely Mini(?: \(([^)]+)\))? — (.+)$/);
+  if (m) {
+    const parts = m[2].split(", ");
+    const breadOrRice = parts[0];
+    const sabji = parts[1];
+    return {
+      title: "Homely Mini",
+      sub: [sabji, breadOrRice].filter(Boolean),
+    };
+  }
+
+  // Not a plan item (e.g. a la carte) — print as-is, no sub-bullets.
+  return { title: name };
+}
+
 function printKOT(order) {
   if (!order) return;
 
@@ -3501,8 +3584,21 @@ function printKOT(order) {
   const address = `${order.tower} · Flat ${order.flat}`;
   const hasNote = order.specialInstructions && order.specialInstructions.trim().length > 0;
 
-  const itemRows = (order.items || [])
-    .map(i => `<tr><td class="qty">${esc(i.qty)}×</td><td class="name">${esc(i.name)}</td></tr>`)
+  const itemBlocks = (order.items || [])
+    .map(i => {
+      const parsed = parseKotItem(i.name);
+      const subHtml = (parsed.sub || [])
+        .map(line => `<div>${esc(line)}</div>`)
+        .join("");
+      const inlineHtml = parsed.inline
+        ? `<div class="item-inline">(${esc(parsed.inline)})</div>`
+        : "";
+      return `<div class="item-block">
+        <div class="item-head"><span>${esc(i.qty)}× ${esc(parsed.title)}</span></div>
+        ${inlineHtml}
+        ${subHtml ? `<div class="item-sub">${subHtml}</div>` : ""}
+      </div>`;
+    })
     .join("");
 
   const html = `<!DOCTYPE html>
@@ -3524,15 +3620,16 @@ function printKOT(order) {
     print-color-adjust: exact;
   }
   .center { text-align: center; }
-  .divider { border-top: 1px dashed #000; margin: 6px 0; }
-  .row { font-size: 16px; line-height: 1.55; word-break: break-word; font-weight: 700; }
+  .divider { border-top: 1px dashed #000; margin: 8px 0; }
+  .row { font-size: 19px; line-height: 1.55; word-break: break-word; font-weight: 700; }
   .label { font-weight: 700; }
-  table { width: 100%; border-collapse: collapse; }
-  td { font-size: 14px; padding: 3px 0; vertical-align: top; font-weight: 700; }
-  td.qty { width: 34px; font-weight: 800; }
-  td.name { font-weight: 700; }
-  .note { font-size: 13px; font-weight: 700; border: 1.5px solid #000; padding: 5px 6px; margin-top: 6px; line-height: 1.4; }
-  .note-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .item-block { margin-bottom: 12px; }
+  .item-head { font-size: 18px; font-weight: 800; word-break: break-word; }
+  .item-sub { font-size: 16px; font-weight: 700; padding-left: 14px; margin-top: 3px; line-height: 1.5; }
+  .item-sub div::before { content: "› "; }
+  .item-inline { font-size: 16px; font-weight: 700; padding-left: 14px; margin-top: 2px; }
+  .note { font-size: 16px; font-weight: 700; border: 1.5px solid #000; padding: 5px 6px; margin-top: 6px; line-height: 1.4; }
+  .note-label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -3540,7 +3637,7 @@ function printKOT(order) {
   <div class="row"><span class="label">Deliver to:</span> ${esc(address)}</div>
   <div class="row"><span class="label">Phone:</span> ${esc(order.phone)}</div>
   <div class="divider"></div>
-  <table>${itemRows}</table>
+  ${itemBlocks}
   ${hasNote ? `<div class="note"><div class="note-label">Special Instructions</div>${esc(order.specialInstructions.trim())}</div>` : ""}
   <script>
     setTimeout(function () {
