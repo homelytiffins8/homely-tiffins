@@ -29,6 +29,47 @@ const KEYS = {
 };
 
 // ─────────────────────────────────────────────
+// OWNER SESSION PERSISTENCE (survives reloads caused by
+// screen-lock / mobile tab suspension — previously ownerAuthed
+// was only in-memory React state, so any reload logged the owner out)
+// ─────────────────────────────────────────────
+const OWNER_SESSION_KEY = "htOwnerSession";
+const OWNER_SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function readOwnerSession() {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(OWNER_SESSION_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.expiresAt || Date.now() > parsed.expiresAt) {
+      window.localStorage.removeItem(OWNER_SESSION_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeOwnerSession() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      OWNER_SESSION_KEY,
+      JSON.stringify({ expiresAt: Date.now() + OWNER_SESSION_DURATION_MS })
+    );
+  } catch {}
+}
+
+function clearOwnerSession() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(OWNER_SESSION_KEY);
+  } catch {}
+}
+
+// ─────────────────────────────────────────────
 // PROMO CODE + REFERRAL HELPERS
 // ─────────────────────────────────────────────
 function defaultReferralConfig() {
@@ -5779,7 +5820,7 @@ export default function App() {
   // URL-hash based routing: #/owner → owner login / dashboard
   const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : "customer";
   const [route, setRoute] = useState(getRouteFromHash);
-  const [ownerAuthed, setOwnerAuthed] = useState(false);
+  const [ownerAuthed, setOwnerAuthed] = useState(() => readOwnerSession());
 
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
@@ -5801,7 +5842,7 @@ export default function App() {
     const onHash = () => {
       const r = getRouteFromHash();
       setRoute(r);
-      if (r === "customer") setOwnerAuthed(false); // auto-logout when navigating away
+      if (r === "customer") { clearOwnerSession(); setOwnerAuthed(false); } // auto-logout when navigating away
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -6351,6 +6392,7 @@ export default function App() {
   }, []);
 
   const handleOwnerLogout = () => {
+    clearOwnerSession();
     setOwnerAuthed(false);
     window.location.hash = "";
   };
@@ -6386,7 +6428,7 @@ export default function App() {
       )}
 
       {route === "owner" && !ownerAuthed && (
-        <OwnerLogin onSuccess={() => setOwnerAuthed(true)} />
+        <OwnerLogin onSuccess={() => { writeOwnerSession(); setOwnerAuthed(true); }} />
       )}
 
       {route === "owner" && ownerAuthed && (
