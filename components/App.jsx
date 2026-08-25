@@ -5918,63 +5918,111 @@ export default function App() {
     })();
   }, []);
 
+  // ── Apply a single (key, value) update to local state — shared by the
+  // realtime subscription handler AND the manual catch-up sync below, so
+  // both paths use identical merge/precedence logic. ──
+  const applyKeyUpdate = useCallback((changedKey, newVal) => {
+    if (changedKey === KEYS.menu)        setMenu(newVal);
+    if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
+    if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
+    if (changedKey === KEYS.contactMessages) setContactMessages(Array.isArray(newVal) ? newVal : []);
+    if (changedKey === KEYS.todayOrders) {
+      const incoming = newVal || [];
+      // Empty payload = authoritative wipe (daily rollover / manual reset).
+      // Apply as-is so resets propagate to all devices.
+      if (incoming.length === 0) {
+        setTodayOrders([]);
+      } else {
+        // Non-empty: merge with local using status precedence so a
+        // late-arriving message with an OLDER status can't
+        // overwrite a newer one we already have. Also strip stale-day
+        // orders defensively.
+        const today = todayStr();
+        const filtered = incoming.filter(o => o.date === today);
+        setTodayOrders(current => mergeOrders(current, filtered));
+      }
+    }
+    if (changedKey === KEYS.ordersHistory) {
+      const incoming = newVal || [];
+      if (incoming.length === 0) {
+        setOrdersHistory([]);
+      } else {
+        setOrdersHistory(current => mergeOrders(current, incoming));
+      }
+    }
+    if (changedKey === KEYS.customers)   setCustomers(newVal || []);
+    if (changedKey === KEYS.credit)      setCredit(newVal || []);
+    if (changedKey === KEYS.kitchenOpen) setKitchenOpen(!!newVal);
+    if (changedKey === KEYS.poll)        setPoll(newVal || null);
+    if (changedKey === KEYS.pollResponses) {
+      // Union-merge by id so a late message can't drop responses
+      // this device already knows about.
+      const incoming = newVal || [];
+      setPollResponses(current => {
+        const byId = new Map(current.map(r => [r.id, r]));
+        incoming.forEach(r => { if (r && r.id) byId.set(r.id, r); });
+        return Array.from(byId.values());
+      });
+    }
+    if (changedKey === KEYS.promoCodes) setPromoCodes(Array.isArray(newVal) ? newVal : []);
+    if (changedKey === KEYS.referralConfig) setReferralConfig({ ...defaultReferralConfig(), ...(newVal || {}) });
+  }, []);
+
+  // ── Manual catch-up sync: re-fetches every key from Supabase and merges
+  // it in. Realtime websockets get silently dropped when a mobile tab is
+  // backgrounded/screen-locked (and sometimes on laptops after long idle
+  // periods) and don't always auto-recover, so any changes made by other
+  // devices during that gap would otherwise be missed forever. This is the
+  // safety net that backfills them once the app is active again. ──
+  const catchUpSync = useCallback(async () => {
+    const keysToSync = Object.values(KEYS);
+    const results = await Promise.all(keysToSync.map(k => load(k)));
+    keysToSync.forEach((k, i) => {
+      // load() returns null both when a row genuinely doesn't exist yet AND
+      // when the fetch itself failed (network blip). Skipping null here
+      // means a flaky catch-up request can never wipe out real local data
+      // (e.g. today's orders) — it just quietly retries next wake/online event.
+      if (results[i] !== null) applyKeyUpdate(k, results[i]);
+    });
+  }, [applyKeyUpdate]);
+
   // ── Real-time sync via Supabase: instantly updates all devices when data changes ──
+  const [realtimeTick, setRealtimeTick] = useState(0);
   useEffect(() => {
     if (!loaded) return;
     const channel = supabase
-      .channel("app_data_changes")
+      .channel(`app_data_changes_${realtimeTick}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "app_data" }, async (payload) => {
         const changedKey = payload.new?.key || payload.old?.key;
         if (!changedKey) return;
-        const newVal = payload.new?.value;
-        if (changedKey === KEYS.menu)        setMenu(newVal);
-        if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
-        if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
-        if (changedKey === KEYS.contactMessages) setContactMessages(Array.isArray(newVal) ? newVal : []);
-        if (changedKey === KEYS.todayOrders) {
-          const incoming = newVal || [];
-          // Empty payload = authoritative wipe (daily rollover / manual reset).
-          // Apply as-is so resets propagate to all devices.
-          if (incoming.length === 0) {
-            setTodayOrders([]);
-          } else {
-            // Non-empty: merge with local using status precedence so a
-            // late-arriving realtime message with an OLDER status can't
-            // overwrite a newer one we already have. Also strip stale-day
-            // orders defensively.
-            const today = todayStr();
-            const filtered = incoming.filter(o => o.date === today);
-            setTodayOrders(current => mergeOrders(current, filtered));
-          }
-        }
-        if (changedKey === KEYS.ordersHistory) {
-          const incoming = newVal || [];
-          if (incoming.length === 0) {
-            setOrdersHistory([]);
-          } else {
-            setOrdersHistory(current => mergeOrders(current, incoming));
-          }
-        }
-        if (changedKey === KEYS.customers)   setCustomers(newVal || []);
-        if (changedKey === KEYS.credit)      setCredit(newVal || []);
-        if (changedKey === KEYS.kitchenOpen) setKitchenOpen(!!newVal);
-        if (changedKey === KEYS.poll)        setPoll(newVal || null);
-        if (changedKey === KEYS.pollResponses) {
-          // Union-merge by id so a late realtime message can't drop responses
-          // this device already knows about.
-          const incoming = newVal || [];
-          setPollResponses(current => {
-            const byId = new Map(current.map(r => [r.id, r]));
-            incoming.forEach(r => { if (r && r.id) byId.set(r.id, r); });
-            return Array.from(byId.values());
-          });
-        }
-        if (changedKey === KEYS.promoCodes) setPromoCodes(Array.isArray(newVal) ? newVal : []);
-        if (changedKey === KEYS.referralConfig) setReferralConfig({ ...defaultReferralConfig(), ...(newVal || {}) });
+        applyKeyUpdate(changedKey, payload.new?.value);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [loaded]);
+  }, [loaded, realtimeTick, applyKeyUpdate]);
+
+  // ── Recover from dropped connections: when the tab regains visibility
+  // (screen unlocked / app reopened) or the network comes back online,
+  // force a fresh realtime subscription AND run a manual catch-up sync.
+  // This is what fixes "doesn't ring / doesn't move forward until I
+  // refresh" — the old code relied entirely on the websocket staying
+  // alive forever, which mobile Chrome does not guarantee. ──
+  useEffect(() => {
+    if (!loaded) return;
+    const onWake = () => {
+      if (document.visibilityState !== "visible" && !navigator.onLine) return;
+      setRealtimeTick(t => t + 1); // tears down + recreates the channel
+      catchUpSync();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("online", onWake);
+    window.addEventListener("focus", onWake);
+    return () => {
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("online", onWake);
+      window.removeEventListener("focus", onWake);
+    };
+  }, [loaded, catchUpSync]);
 
   // ── New order alert sound ──
   useOrderAlert(todayOrders, route === "owner" && ownerAuthed);
