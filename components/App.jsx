@@ -294,7 +294,19 @@ function SaveErrorBanner() {
 // deliberately do NOT surface an error banner to the owner/customer —
 // the real save already succeeded via app_data, so failure here must
 // never look like the order itself failed.
+const ORDER_KNOWN_FIELDS = new Set([
+  "id", "phone", "customerName", "tower", "flat", "address", "items", "total",
+  "status", "paymentMode", "promoCode", "referralCode", "notes", "date",
+  "createdAt", "preparingAt", "readyAt", "dispatchedAt", "deliveredAt",
+]);
 function orderToRow(o) {
+  // Anything not mapped to a real column (rating object, promoLabel,
+  // referrer tracking fields, and any future field) is preserved in
+  // `extra` rather than silently dropped — see schema note.
+  const extra = {};
+  for (const k in o) {
+    if (!ORDER_KNOWN_FIELDS.has(k)) extra[k] = o[k];
+  }
   return {
     id: o.id,
     phone: o.phone || "",
@@ -315,6 +327,33 @@ function orderToRow(o) {
     ready_at: o.readyAt || null,
     dispatched_at: o.dispatchedAt || null,
     delivered_at: o.deliveredAt || null,
+    extra,
+  };
+}
+// Inverse of orderToRow — reconstructs the app's order object shape from
+// a table row, so read paths get back exactly what write paths saved.
+function rowToOrder(row) {
+  return {
+    ...(row.extra || {}),
+    id: row.id,
+    phone: row.phone,
+    customerName: row.customer_name,
+    tower: row.tower,
+    flat: row.flat,
+    address: row.address,
+    items: row.items || [],
+    total: row.total,
+    status: row.status,
+    paymentMode: row.payment_mode,
+    promoCode: row.promo_code,
+    referralCode: row.referral_code,
+    notes: row.notes,
+    date: row.date,
+    createdAt: row.created_at,
+    preparingAt: row.preparing_at,
+    readyAt: row.ready_at,
+    dispatchedAt: row.dispatched_at,
+    deliveredAt: row.delivered_at,
   };
 }
 async function dualWriteOrders(orders) {
@@ -326,6 +365,32 @@ async function dualWriteOrders(orders) {
   } catch (err) {
     console.error("[dual-write] orders upsert threw (app_data remains source of truth):", err);
   }
+}
+
+// ─────────────────────────────────────────────
+// STAGE 4 — READ FROM THE NEW `orders` TABLE
+// ─────────────────────────────────────────────
+// Reads now come from the real `orders` table instead of the
+// app_data blob. Writes still go to BOTH (dualWriteOrders above +
+// the existing save(KEYS.todayOrders/…) calls) so app_data stays a
+// live fallback — if anything looks wrong after this, reverting the
+// read functions below back to load(KEYS.todayOrders)/load(KEYS.ordersHistory)
+// fully restores the old behaviour without any data loss.
+async function loadTodayOrdersFromTable(today) {
+  try {
+    const { data, error } = await supabase.from("orders").select("*").eq("date", today);
+    if (error) { notifyStorageError("load", "orders(today)", error); return null; }
+    return (data || []).map(rowToOrder);
+  } catch (err) { notifyStorageError("load", "orders(today)", err); return null; }
+}
+async function loadHistoryOrdersFromTable(excludeDate) {
+  try {
+    let q = supabase.from("orders").select("*").order("created_at", { ascending: false }).limit(5000);
+    if (excludeDate) q = q.neq("date", excludeDate);
+    const { data, error } = await q;
+    if (error) { notifyStorageError("load", "orders(history)", error); return null; }
+    return (data || []).map(rowToOrder);
+  } catch (err) { notifyStorageError("load", "orders(history)", err); return null; }
 }
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -5964,14 +6029,15 @@ export default function App() {
   // ── BOOT: load storage + handle daily rollover ──
   useEffect(() => {
     (async () => {
+      const today = todayStr();
       const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm, prm, rcfg] = await Promise.all([
         load(KEYS.menu),
-        load(KEYS.todayOrders),
+        loadTodayOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         load(KEYS.customers),
         load(KEYS.lastDate),
         load(KEYS.credit),
         load(KEYS.kitchenOpen),
-        load(KEYS.ordersHistory),
+        loadHistoryOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         load(KEYS.poll),
         load(KEYS.pollResponses),
         load(KEYS.planConfig),
@@ -5987,46 +6053,32 @@ export default function App() {
       if (Array.isArray(cm)) setContactMessages(cm);
       if (cust) setCustomers(cust);
       if (cred) setCredit(cred);
-      if (hist) setOrdersHistory(hist);
       if (ko !== null && ko !== undefined) setKitchenOpen(!!ko);
       if (pl) setPoll(pl);
       if (Array.isArray(pr)) setPollResponses(pr);
       if (Array.isArray(prm)) setPromoCodes(prm);
       if (rcfg) setReferralConfig({ ...defaultReferralConfig(), ...rcfg });
 
-      const today = todayStr();
+      // td is already filtered to today's date, hist already excludes today
+      // (loadTodayOrdersFromTable/loadHistoryOrdersFromTable do this) — the
+      // relational table separates "today" vs "history" naturally by date,
+      // so unlike the old blob approach, no manual archiving step is needed
+      // here anymore. Rows just stop appearing in "today" once their date
+      // isn't today, and start appearing in "history" — same underlying data.
+      setTodayOrders(td || []);
+      setOrdersHistory(hist || []);
 
-      if (lastDate && lastDate !== today && td && td.length > 0) {
-        setTodayOrders([]);
-        // Archive the previous day's orders into history (dedup by id, keep last ~100 days)
-        const storedHistory = hist || [];
-        const seen = new Set(storedHistory.map(o => o.id));
-        const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 100); return d.toISOString().split("T")[0]; })();
-        const archived = [...storedHistory, ...td.filter(o => !seen.has(o.id))].filter(o => o.date >= cutoff);
-        setOrdersHistory(archived);
-        // Drop settled (zero balance) credit customers on daily rollover
+      if (lastDate !== today) {
+        // Day has changed. Credit/khata ledger rollover (unrelated to
+        // orders, still app_data-backed — left as-is per current scope)...
         const storedCredit = cred || [];
         const getBalance = (entries) => entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0);
         const rolledCredit = storedCredit.filter(c => getBalance(c.entries) !== 0);
         setCredit(rolledCredit);
         await Promise.all([
-          save(KEYS.todayOrders, []),
-          save(KEYS.ordersHistory, archived),
           save(KEYS.credit, rolledCredit),
           save(KEYS.lastDate, today),
         ]);
-        dualWriteOrders(archived); // Stage 3 shadow-write, non-blocking
-      } else {
-        // Defensive: only orders dated today belong in todayOrders.
-        // Guards against yesterday's orders leaking in if a device stayed
-        // open across midnight and never got the rollover.
-        const currentToday = (td || []).filter(o => o.date === today);
-        setTodayOrders(currentToday);
-        if (td && currentToday.length !== td.length) {
-          await save(KEYS.todayOrders, currentToday);
-        }
-        await save(KEYS.lastDate, today);
-        dualWriteOrders(currentToday); // Stage 3 shadow-write, non-blocking
       }
 
       setLoaded(true);
@@ -6260,7 +6312,7 @@ export default function App() {
     // advances that other devices (owner dashboard, family members)
     // have already committed to Supabase.
     const today = todayStr();
-    const serverOrders = ((await load(KEYS.todayOrders)) || []).filter(o => o.date === today);
+    const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
     const merged = mergeOrders(localToday, serverOrders);
     const newTodayOrders = [order, ...merged.filter(o => o.id !== order.id)];
@@ -6282,7 +6334,7 @@ export default function App() {
   const handleAdvanceOrder = useCallback(async (orderId, nextStatus) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
     const today = todayStr();
-    const serverOrders = ((await load(KEYS.todayOrders)) || []).filter(o => o.date === today);
+    const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
     const base = mergeOrders(localToday, serverOrders);
     const order = base.find(o => o.id === orderId);
@@ -6391,7 +6443,7 @@ export default function App() {
   const handleRejectOrder = useCallback(async (orderId) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
     const today = todayStr();
-    const serverOrders = ((await load(KEYS.todayOrders)) || []).filter(o => o.date === today);
+    const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
     const base = mergeOrders(localToday, serverOrders);
     const order = base.find(o => o.id === orderId);
@@ -6424,7 +6476,7 @@ export default function App() {
     // First check today's orders
     const inToday = todayOrders.some(o => o.id === orderId);
     if (inToday) {
-      const serverOrders = ((await load(KEYS.todayOrders)) || []).filter(o => o.date === today);
+      const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
       const localToday = todayOrders.filter(o => o.date === today);
       const base = mergeOrders(localToday, serverOrders);
       const target = base.find(o => o.id === orderId);
@@ -6439,7 +6491,7 @@ export default function App() {
     }
 
     // Otherwise it's in history
-    const serverHistory = (await load(KEYS.ordersHistory)) || [];
+    const serverHistory = (await loadHistoryOrdersFromTable(today)) || [];
     const base = mergeOrders(ordersHistory, serverHistory);
     const target = base.find(o => o.id === orderId);
     if (!target) return;
