@@ -6477,7 +6477,7 @@ export default function App() {
           onSubmitRating={handleSubmitRating}
           onSubmitPollResponse={handleSubmitPollResponse}
           onSubmitContactMessage={handleSubmitContactMessage}
-          onOwnerAccess={() => setRoute("owner")}
+          onOwnerAccess={() => { window.location.hash = "#/owner"; }}
         />
       )}
 
