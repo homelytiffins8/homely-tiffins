@@ -59,13 +59,20 @@ function defaultReferralConfig() {
   return { enabled: true, referredDiscount: 30, referrerReward: 50, minOrder: 0 };
 }
 
-// Referral code derived from phone: HT + last 5 digits. Deterministic,
+// Referral code derived from phone: HT + last 8 digits. Deterministic,
 // so any customer's code is recoverable from their phone. Every past
 // customer therefore already has a working referral code.
+// Widened from 5 to 8 digits (was HT##### — collision-prone: two
+// customers whose phone numbers happened to share the same last 5
+// digits got the exact same code, and lookups used .find(), which
+// silently matched the wrong customer and could misattribute referral
+// rewards). 8 digits makes accidental collisions effectively impossible
+// for a society-sized customer base while still being a short, shareable
+// code.
 function getReferralCode(phone) {
   const digits = (phone || "").replace(/\D/g, "");
-  if (digits.length < 5) return "";
-  return "HT" + digits.slice(-5);
+  if (digits.length < 8) return "";
+  return "HT" + digits.slice(-8);
 }
 function phoneMatchesReferralCode(phone, code) {
   return getReferralCode(phone) === (code || "").toUpperCase().trim();
@@ -73,7 +80,7 @@ function phoneMatchesReferralCode(phone, code) {
 
 // Try to resolve an entered promo/referral code against:
 //   1. Active promo codes (flat / percent)
-//   2. Referral pattern HT##### matching an existing customer (with >=1 past order)
+//   2. Referral pattern HT######## matching an existing customer (with >=1 past order)
 // Returns { ok, discount, kind: "promo"|"referral", promoCode?, referrerPhone?, referrerName?, error? }
 // Rules:
 //   - Empty code => ok:true, discount:0, kind:"none"
@@ -104,10 +111,10 @@ function resolvePromoOrReferral({ codeText, promoCodes = [], referralConfig, cus
     return { ok: true, discount, kind: "promo", promoCode: promo.code, description: promo.description };
   }
 
-  // 2) Referral code match (HT#####)
+  // 2) Referral code match (HT########)
   const rc = referralConfig && referralConfig.enabled !== false ? referralConfig : null;
-  if (rc && /^HT\d{5}$/i.test(upper)) {
-    // Find referrer by matching last-5 of phone
+  if (rc && /^HT\d{8}$/i.test(upper)) {
+    // Find referrer by matching last-8 of phone
     const referrer = (customers || []).find(c => getReferralCode(c.phone) === upper && (c.totalOrders || 0) >= 1);
     if (!referrer) return { ok: false, error: "Referral code not recognised" };
     // Prevent self-referral
@@ -218,20 +225,119 @@ function resizeAndCompressImage(file, maxWidth = 1400, quality = 0.85) {
 // Cap stored poll responses so the payload stays small for realtime sync.
 const MAX_POLL_RESPONSES = 3000;
 
+// Broadcasts a storage failure so the UI can tell the user their change
+// may not have actually been saved, instead of silently pretending it
+// worked. Listened for by <SaveErrorBanner/> mounted at the app root.
+function notifyStorageError(action, key, err) {
+  console.error(`[storage] ${action} failed for "${key}":`, err);
+  try {
+    window.dispatchEvent(new CustomEvent("ht-storage-error", { detail: { action, key } }));
+  } catch {}
+}
+
 async function load(key) {
   try {
     const { data, error } = await supabase.from("app_data").select("value").eq("key", key).maybeSingle();
-    if (error || !data) return null;
+    if (error) { notifyStorageError("load", key, error); return null; }
+    if (!data) return null;
     return data.value;
-  } catch { return null; }
+  } catch (err) { notifyStorageError("load", key, err); return null; }
 }
 async function save(key, val) {
   try {
-    await supabase.from("app_data").upsert({ key, value: val, updated_at: new Date().toISOString() }, { onConflict: "key" });
-  } catch {}
+    const { error } = await supabase.from("app_data").upsert({ key, value: val, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (error) notifyStorageError("save", key, error);
+  } catch (err) { notifyStorageError("save", key, err); }
 }
+// Small banner shown when a save/load to Supabase fails, so the person
+// isn't left thinking a change went through when it didn't. Auto-hides
+// after a few seconds; stacks a count if multiple failures happen close
+// together.
+function SaveErrorBanner() {
+  const [visible, setVisible] = useState(false);
+  const hideTimer = useRef(null);
+
+  useEffect(() => {
+    const onError = () => {
+      setVisible(true);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setVisible(false), 6000);
+    };
+    window.addEventListener("ht-storage-error", onError);
+    return () => {
+      window.removeEventListener("ht-storage-error", onError);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, []);
+
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
+      zIndex: 9999, background: "#B94A3B", color: "#fff", fontSize: 13, fontWeight: 600,
+      padding: "10px 18px", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+      display: "flex", alignItems: "center", gap: 8, maxWidth: "90vw", textAlign: "center",
+    }}>
+      ⚠️ Connection issue — your last change may not have saved. Please check and try again.
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STAGE 3 — DUAL-WRITE TO THE NEW `orders` TABLE
+// ─────────────────────────────────────────────
+// The app still reads/writes its actual working data from the
+// app_data blob (KEYS.todayOrders / KEYS.ordersHistory), same as
+// before. This mirrors every order write to the new relational
+// `orders` table too, so we can verify for a while that the two
+// stay in sync before ever switching reads over. If this fails, we
+// deliberately do NOT surface an error banner to the owner/customer —
+// the real save already succeeded via app_data, so failure here must
+// never look like the order itself failed.
+function orderToRow(o) {
+  return {
+    id: o.id,
+    phone: o.phone || "",
+    customer_name: o.customerName || null,
+    tower: o.tower || null,
+    flat: o.flat || null,
+    address: o.address || null,
+    items: o.items || [],
+    total: o.total ?? 0,
+    status: o.status || "pending",
+    payment_mode: o.paymentMode || null,
+    promo_code: o.promoCode || null,
+    referral_code: o.referralCode || null,
+    notes: o.notes || null,
+    date: o.date || null,
+    created_at: o.createdAt || new Date().toISOString(),
+    preparing_at: o.preparingAt || null,
+    ready_at: o.readyAt || null,
+    dispatched_at: o.dispatchedAt || null,
+    delivered_at: o.deliveredAt || null,
+  };
+}
+async function dualWriteOrders(orders) {
+  if (!orders || orders.length === 0) return;
+  try {
+    const rows = orders.map(orderToRow);
+    const { error } = await supabase.from("orders").upsert(rows, { onConflict: "id" });
+    if (error) console.error("[dual-write] orders upsert failed (app_data remains source of truth):", error);
+  } catch (err) {
+    console.error("[dual-write] orders upsert threw (app_data remains source of truth):", err);
+  }
+}
+
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-function todayStr() { return new Date().toISOString().split("T")[0]; }
+// Returns today's date as YYYY-MM-DD in India Standard Time (UTC+5:30),
+// not raw UTC. Raw UTC would roll the date over at 5:30 AM IST instead
+// of midnight IST — e.g. at 1:00 AM IST it's still the previous day in
+// UTC, which used to leak into menus/orders/analytics/archiving/credit
+// reconciliation as "yesterday" during that ~5.5 hour window.
+function todayStr() {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().split("T")[0];
+}
 function weekKey(dateStr) {
   const d = new Date(dateStr); const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
@@ -3317,7 +3423,7 @@ function PromoCenter({ promoCodes = [], referralConfig, onSavePromoCodes, onSave
     setError("");
     const code = draft.code.trim().toUpperCase();
     if (!code) return setError("Enter a code");
-    if (/^HT\d{5}$/i.test(code)) return setError("HT##### is reserved for referral codes");
+    if (/^HT\d{8}$/i.test(code)) return setError("HT######## is reserved for referral codes");
     if (promoCodes.some(p => (p.code || "").toUpperCase() === code)) return setError("This code already exists");
     const value = Number(draft.value);
     if (!Number.isFinite(value) || value <= 0) return setError("Enter a valid discount value");
@@ -3493,7 +3599,7 @@ function PromoCenter({ promoCodes = [], referralConfig, onSavePromoCodes, onSave
           </label>
         </div>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
-          Each existing customer's referral code is <strong>HT + last 5 digits of their phone</strong> (e.g. HT12345).
+          Each existing customer's referral code is <strong>HT + last 8 digits of their phone</strong> (e.g. HT91234567).
           New customers who enter it at checkout get an instant discount; the referrer gets credit added to their ledger
           once the new customer's order is delivered.
         </p>
@@ -5909,6 +6015,7 @@ export default function App() {
           save(KEYS.credit, rolledCredit),
           save(KEYS.lastDate, today),
         ]);
+        dualWriteOrders(archived); // Stage 3 shadow-write, non-blocking
       } else {
         // Defensive: only orders dated today belong in todayOrders.
         // Guards against yesterday's orders leaking in if a device stayed
@@ -5919,6 +6026,7 @@ export default function App() {
           await save(KEYS.todayOrders, currentToday);
         }
         await save(KEYS.lastDate, today);
+        dualWriteOrders(currentToday); // Stage 3 shadow-write, non-blocking
       }
 
       setLoaded(true);
@@ -6158,6 +6266,7 @@ export default function App() {
     const newTodayOrders = [order, ...merged.filter(o => o.id !== order.id)];
     setTodayOrders(newTodayOrders);
     await save(KEYS.todayOrders, newTodayOrders);
+    dualWriteOrders([order]); // Stage 3 shadow-write, non-blocking
     setCustomers(prev => {
       const next = [...prev];
       const idx = next.findIndex(c => c.phone === order.phone);
@@ -6187,6 +6296,7 @@ export default function App() {
     if (rNext <= rCurr) {
       setTodayOrders(base);
       await save(KEYS.todayOrders, base);
+      dualWriteOrders(base); // Stage 3 shadow-write, non-blocking
       return;
     }
 
@@ -6208,6 +6318,7 @@ export default function App() {
     });
     setTodayOrders(updated);
     await save(KEYS.todayOrders, updated);
+    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
 
     // When delivered → auto-debit credit ledger.
     // Idempotent: each order can only be credited ONCE, no matter how many
@@ -6291,12 +6402,14 @@ export default function App() {
     if (order.status === "dispatched" || order.status === "delivered") {
       setTodayOrders(base);
       await save(KEYS.todayOrders, base);
+      dualWriteOrders(base); // Stage 3 shadow-write, non-blocking
       return;
     }
 
     const updated = base.map(o => o.id === orderId ? { ...o, status: "rejected" } : o);
     setTodayOrders(updated);
     await save(KEYS.todayOrders, updated);
+    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
   }, [todayOrders]);
 
   // ── Submit customer rating ──
@@ -6321,6 +6434,7 @@ export default function App() {
       const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
       setTodayOrders(updated);
       await save(KEYS.todayOrders, updated);
+      dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
       return;
     }
 
@@ -6333,6 +6447,7 @@ export default function App() {
     const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
     setOrdersHistory(updated);
     await save(KEYS.ordersHistory, updated);
+    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
   }, [todayOrders, ordersHistory]);
 
   const handleAddCredit = useCallback(async (phone, entry) => {
@@ -6460,6 +6575,7 @@ export default function App() {
   return (
     <div>
       <GlobalStyle />
+      <SaveErrorBanner />
 
       {route === "customer" && (
         <CustomerApp
