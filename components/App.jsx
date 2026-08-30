@@ -29,43 +29,26 @@ const KEYS = {
 };
 
 // ─────────────────────────────────────────────
-// OWNER SESSION PERSISTENCE (survives reloads caused by
-// screen-lock / mobile tab suspension — previously ownerAuthed
-// was only in-memory React state, so any reload logged the owner out)
+// OWNER SESSION PERSISTENCE
+// Now backed by real Supabase Auth (supabase.auth.signInWithPassword),
+// instead of a plain localStorage flag anyone could set by hand.
+// The Supabase client itself persists the session (in localStorage,
+// but as a real signed JWT session token — not a boolean we invented),
+// and auto-refreshes it, so we just ask it for the current session
+// instead of maintaining our own expiry logic.
 // ─────────────────────────────────────────────
-const OWNER_SESSION_KEY = "htOwnerSession";
-const OWNER_SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-function readOwnerSession() {
-  if (typeof window === "undefined") return false;
+async function getOwnerSession() {
   try {
-    const raw = window.localStorage.getItem(OWNER_SESSION_KEY);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.expiresAt || Date.now() > parsed.expiresAt) {
-      window.localStorage.removeItem(OWNER_SESSION_KEY);
-      return false;
-    }
-    return true;
+    const { data } = await supabase.auth.getSession();
+    return !!data?.session;
   } catch {
     return false;
   }
 }
 
-function writeOwnerSession() {
-  if (typeof window === "undefined") return;
+async function clearOwnerSession() {
   try {
-    window.localStorage.setItem(
-      OWNER_SESSION_KEY,
-      JSON.stringify({ expiresAt: Date.now() + OWNER_SESSION_DURATION_MS })
-    );
-  } catch {}
-}
-
-function clearOwnerSession() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(OWNER_SESSION_KEY);
+    await supabase.auth.signOut();
   } catch {}
 }
 
@@ -5653,28 +5636,36 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
 
 // ─────────────────────────────────────────────
 // OWNER LOGIN SCREEN
+// Authenticates against real Supabase Auth (email + password) instead
+// of a hardcoded string that was previously readable by anyone who
+// opened the browser's dev tools.
 // ─────────────────────────────────────────────
-const OWNER_USER = "Homelytiffins8";
-const OWNER_PASS = "Homely@098";
-
 function OwnerLogin({ onSuccess }) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(""); // holds the login email
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
+  const [checking, setChecking] = useState(false);
 
-  const handleLogin = () => {
-    if (username === OWNER_USER && password === OWNER_PASS) {
+  const handleLogin = async () => {
+    setChecking(true);
+    setError("");
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: username.trim(),
+      password,
+    });
+    setChecking(false);
+    if (!authError) {
       onSuccess();
     } else {
-      setError("Incorrect username or password.");
+      setError("Incorrect email or password.");
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
     }
   };
 
-  const handleKey = (e) => { if (e.key === "Enter") handleLogin(); };
+  const handleKey = (e) => { if (e.key === "Enter" && !checking) handleLogin(); };
 
   return (
     <div style={{ minHeight: "100vh", background: C.cream, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -5696,10 +5687,11 @@ function OwnerLogin({ onSuccess }) {
       <div className={`ht-card ${shaking ? "shake" : ""}`} style={{ width: "100%", maxWidth: 380, padding: 32 }}>
         <div style={{ display: "grid", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 5 }}>Username</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 5 }}>Email</label>
             <input
               className="ht-input"
-              placeholder="Enter username"
+              placeholder="Enter email"
+              type="email"
               value={username}
               onChange={e => { setUsername(e.target.value); setError(""); }}
               onKeyDown={handleKey}
@@ -5734,8 +5726,8 @@ function OwnerLogin({ onSuccess }) {
             </div>
           )}
 
-          <button className="ht-btn btn-primary btn-full btn-lg" onClick={handleLogin} style={{ marginTop: 4 }}>
-            Sign In →
+          <button className="ht-btn btn-primary btn-full btn-lg" onClick={handleLogin} disabled={checking} style={{ marginTop: 4, opacity: checking ? 0.7 : 1 }}>
+            {checking ? "Signing in..." : "Sign In →"}
           </button>
         </div>
       </div>
@@ -5820,7 +5812,22 @@ export default function App() {
   // URL-hash based routing: #/owner → owner login / dashboard
   const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : "customer";
   const [route, setRoute] = useState(getRouteFromHash);
-  const [ownerAuthed, setOwnerAuthed] = useState(() => readOwnerSession());
+  const [ownerAuthed, setOwnerAuthed] = useState(false);
+  const [ownerAuthChecked, setOwnerAuthChecked] = useState(false);
+
+  // On mount, ask Supabase Auth if there's already a valid owner session
+  // (e.g. page reload, tab reopened). Also listen for sign-out events
+  // (session expiry, manual sign-out) so ownerAuthed stays in sync.
+  useEffect(() => {
+    getOwnerSession().then(authed => {
+      setOwnerAuthed(authed);
+      setOwnerAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setOwnerAuthed(!!session);
+    });
+    return () => listener?.subscription?.unsubscribe();
+  }, []);
 
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
@@ -5842,7 +5849,7 @@ export default function App() {
     const onHash = () => {
       const r = getRouteFromHash();
       setRoute(r);
-      if (r === "customer") { clearOwnerSession(); setOwnerAuthed(false); } // auto-logout when navigating away
+      if (r === "customer") { clearOwnerSession(); } // auto-logout when navigating away (onAuthStateChange updates ownerAuthed)
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -6440,8 +6447,7 @@ export default function App() {
   }, []);
 
   const handleOwnerLogout = () => {
-    clearOwnerSession();
-    setOwnerAuthed(false);
+    clearOwnerSession(); // onAuthStateChange fires and updates ownerAuthed
     window.location.hash = "";
   };
 
@@ -6475,11 +6481,17 @@ export default function App() {
         />
       )}
 
-      {route === "owner" && !ownerAuthed && (
-        <OwnerLogin onSuccess={() => { writeOwnerSession(); setOwnerAuthed(true); }} />
+      {route === "owner" && !ownerAuthChecked && (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.cream }}>
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🍱</div><p style={{ color: C.inkMid }}>Loading...</p></div>
+        </div>
       )}
 
-      {route === "owner" && ownerAuthed && (
+      {route === "owner" && ownerAuthChecked && !ownerAuthed && (
+        <OwnerLogin onSuccess={() => setOwnerAuthed(true)} />
+      )}
+
+      {route === "owner" && ownerAuthChecked && ownerAuthed && (
         <BackendApp
           menu={menu}
           planConfig={planConfig}
