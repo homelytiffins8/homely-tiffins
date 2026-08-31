@@ -393,6 +393,36 @@ async function loadHistoryOrdersFromTable(excludeDate) {
   } catch (err) { notifyStorageError("load", "orders(history)", err); return null; }
 }
 
+// ─────────────────────────────────────────────
+// STAGE 5 — CUSTOMERS: dual-write to the new `customers` table
+// (same pattern as orders: reads still come from app_data for now,
+// this only mirrors writes so we can verify before cutting over.)
+// ─────────────────────────────────────────────
+function customerToRow(c) {
+  return {
+    phone: c.phone,
+    name: c.name || null,
+    tower: c.tower || null,
+    flat: c.flat || null,
+    total_orders: c.totalOrders || 0,
+    total_spent: c.totalSpent || 0,
+    first_order_date: c.firstOrderDate || null,
+    last_order_date: c.lastOrderDate || null,
+    referral_code: getReferralCode(c.phone) || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+async function dualWriteCustomers(customersList) {
+  if (!customersList || customersList.length === 0) return;
+  try {
+    const rows = customersList.map(customerToRow);
+    const { error } = await supabase.from("customers").upsert(rows, { onConflict: "phone" });
+    if (error) console.error("[dual-write] customers upsert failed (app_data remains source of truth):", error);
+  } catch (err) {
+    console.error("[dual-write] customers upsert threw (app_data remains source of truth):", err);
+  }
+}
+
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 // Returns today's date as YYYY-MM-DD in India Standard Time (UTC+5:30),
 // not raw UTC. Raw UTC would roll the date over at 5:30 AM IST instead
@@ -6327,7 +6357,9 @@ export default function App() {
       } else {
         next.push({ name: order.customerName, phone: order.phone, tower: order.tower, flat: order.flat, totalOrders: 1, totalSpent: order.total, firstOrderDate: order.date, lastOrderDate: order.date });
       }
-      save(KEYS.customers, next); return next;
+      save(KEYS.customers, next);
+      dualWriteCustomers([next[idx >= 0 ? idx : next.length - 1]]); // Stage 5 shadow-write, non-blocking
+      return next;
     });
   }, [todayOrders]);
 
@@ -6611,6 +6643,15 @@ export default function App() {
       save(KEYS.credit, []),
       save(KEYS.lastDate, todayStr()),
     ]);
+    // Also clear the new tables — they hold live data now (orders is
+    // fully cut over; customers is still dual-write but shouldn't be
+    // left stale after a reset).
+    try {
+      await supabase.from("orders").delete().neq("id", "");
+      await supabase.from("customers").delete().neq("phone", "");
+    } catch (err) {
+      console.error("[reset] failed to clear orders/customers tables:", err);
+    }
   }, []);
 
   const handleOwnerLogout = () => {
