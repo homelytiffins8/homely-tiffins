@@ -422,6 +422,26 @@ async function dualWriteCustomers(customersList) {
     console.error("[dual-write] customers upsert threw (app_data remains source of truth):", err);
   }
 }
+// Inverse of customerToRow — reconstructs the app's customer object shape.
+function rowToCustomer(row) {
+  return {
+    phone: row.phone,
+    name: row.name,
+    tower: row.tower,
+    flat: row.flat,
+    totalOrders: row.total_orders,
+    totalSpent: row.total_spent,
+    firstOrderDate: row.first_order_date,
+    lastOrderDate: row.last_order_date,
+  };
+}
+async function loadCustomersFromTable() {
+  try {
+    const { data, error } = await supabase.from("customers").select("*");
+    if (error) { notifyStorageError("load", "customers", error); return null; }
+    return (data || []).map(rowToCustomer);
+  } catch (err) { notifyStorageError("load", "customers", err); return null; }
+}
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 // Returns today's date as YYYY-MM-DD in India Standard Time (UTC+5:30),
@@ -6063,7 +6083,7 @@ export default function App() {
       const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm, prm, rcfg] = await Promise.all([
         load(KEYS.menu),
         loadTodayOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
-        load(KEYS.customers),
+        loadCustomersFromTable(), // Stage 6: reads from `customers` table now, not app_data
         load(KEYS.lastDate),
         load(KEYS.credit),
         load(KEYS.kitchenOpen),
