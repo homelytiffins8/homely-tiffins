@@ -443,6 +443,101 @@ async function loadCustomersFromTable() {
   } catch (err) { notifyStorageError("load", "customers", err); return null; }
 }
 
+// ─────────────────────────────────────────────
+// STAGE 7 — CONTACT MESSAGES & POLL RESPONSES
+// Lower-stakes tables (not linked to money/orders), so migrated
+// directly to full read+write on the table rather than a separate
+// dual-write phase — same underlying pattern as before, just combined.
+// app_data is NOT touched for these two anymore going forward.
+// ─────────────────────────────────────────────
+const CONTACT_MSG_KNOWN_FIELDS = new Set(["id", "name", "phone", "message", "ts", "read"]);
+function contactMessageToRow(m) {
+  const extra = {};
+  for (const k in m) if (!CONTACT_MSG_KNOWN_FIELDS.has(k)) extra[k] = m[k];
+  return {
+    id: m.id,
+    phone: m.phone || null,
+    name: m.name || null,
+    message: m.message || "",
+    created_at: m.ts ? new Date(m.ts).toISOString() : new Date().toISOString(),
+    read: !!m.read,
+    extra,
+  };
+}
+function rowToContactMessage(row) {
+  return {
+    ...(row.extra || {}),
+    id: row.id,
+    phone: row.phone,
+    name: row.name,
+    message: row.message,
+    ts: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    read: row.read,
+  };
+}
+async function loadContactMessagesFromTable() {
+  try {
+    const { data, error } = await supabase.from("contact_messages").select("*").order("created_at", { ascending: false }).limit(500);
+    if (error) { notifyStorageError("load", "contact_messages", error); return null; }
+    return (data || []).map(rowToContactMessage);
+  } catch (err) { notifyStorageError("load", "contact_messages", err); return null; }
+}
+async function saveContactMessagesToTable(list) {
+  try {
+    const rows = list.map(contactMessageToRow);
+    const { error } = await supabase.from("contact_messages").upsert(rows, { onConflict: "id" });
+    if (error) notifyStorageError("save", "contact_messages", error);
+  } catch (err) { notifyStorageError("save", "contact_messages", err); }
+}
+async function deleteContactMessageFromTable(id) {
+  try {
+    const { error } = await supabase.from("contact_messages").delete().eq("id", id);
+    if (error) notifyStorageError("delete", "contact_messages", error);
+  } catch (err) { notifyStorageError("delete", "contact_messages", err); }
+}
+
+const POLL_RESPONSE_KNOWN_FIELDS = new Set(["id", "pollId", "choice"]);
+function pollResponseToRow(r) {
+  const extra = {};
+  for (const k in r) if (!POLL_RESPONSE_KNOWN_FIELDS.has(k)) extra[k] = r[k];
+  return {
+    id: r.id,
+    poll_id: r.pollId || "unknown",
+    phone: r.phone || null,
+    answer: r.choice || "",
+    created_at: r.at || new Date().toISOString(),
+    extra,
+  };
+}
+function rowToPollResponse(row) {
+  return {
+    ...(row.extra || {}),
+    id: row.id,
+    pollId: row.poll_id,
+    choice: row.answer,
+    at: row.created_at,
+  };
+}
+async function loadPollResponsesFromTable() {
+  try {
+    const { data, error } = await supabase.from("poll_responses").select("*").order("created_at", { ascending: false }).limit(MAX_POLL_RESPONSES);
+    if (error) { notifyStorageError("load", "poll_responses", error); return null; }
+    return (data || []).map(rowToPollResponse);
+  } catch (err) { notifyStorageError("load", "poll_responses", err); return null; }
+}
+async function savePollResponseToTable(response) {
+  try {
+    const { error } = await supabase.from("poll_responses").upsert([pollResponseToRow(response)], { onConflict: "id" });
+    if (error) notifyStorageError("save", "poll_responses", error);
+  } catch (err) { notifyStorageError("save", "poll_responses", err); }
+}
+async function clearPollResponsesTable() {
+  try {
+    const { error } = await supabase.from("poll_responses").delete().neq("id", "");
+    if (error) notifyStorageError("delete", "poll_responses", error);
+  } catch (err) { notifyStorageError("delete", "poll_responses", err); }
+}
+
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 // Returns today's date as YYYY-MM-DD in India Standard Time (UTC+5:30),
 // not raw UTC. Raw UTC would roll the date over at 5:30 AM IST instead
@@ -6089,10 +6184,10 @@ export default function App() {
         load(KEYS.kitchenOpen),
         loadHistoryOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         load(KEYS.poll),
-        load(KEYS.pollResponses),
+        loadPollResponsesFromTable(), // Stage 7: reads from `poll_responses` table now, not app_data
         load(KEYS.planConfig),
         load(KEYS.contactInfo),
-        load(KEYS.contactMessages),
+        loadContactMessagesFromTable(), // Stage 7: reads from `contact_messages` table now, not app_data
         load(KEYS.promoCodes),
         load(KEYS.referralConfig),
       ]);
@@ -6142,6 +6237,10 @@ export default function App() {
     if (changedKey === KEYS.menu)        setMenu(newVal);
     if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
     if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
+    // contactMessages/pollResponses app_data keys are no longer written to
+    // (Stage 7 moved them fully to their own tables), so these two branches
+    // are now inert — left in place rather than removed, since it's
+    // harmless dead code and avoids touching more than necessary.
     if (changedKey === KEYS.contactMessages) setContactMessages(Array.isArray(newVal) ? newVal : []);
     if (changedKey === KEYS.todayOrders) {
       const incoming = newVal || [];
@@ -6270,9 +6369,6 @@ export default function App() {
   }, []);
 
   const handleSubmitContactMessage = useCallback(async ({ name, phone, message }) => {
-    // Fetch-merge-write so a message doesn't overwrite a concurrent one.
-    const remote = await load(KEYS.contactMessages);
-    const list = Array.isArray(remote) ? remote : [];
     const entry = {
       id: genId(),
       name: (name || "").trim(),
@@ -6281,25 +6377,24 @@ export default function App() {
       ts: Date.now(),
       read: false,
     };
-    const next = [entry, ...list].slice(0, 500); // cap to avoid runaway growth
-    setContactMessages(next);
-    await save(KEYS.contactMessages, next);
+    setContactMessages(prev => [entry, ...prev].slice(0, 500));
+    await saveContactMessagesToTable([entry]); // insert-only, no read-modify-write needed with a real table
     return true;
   }, []);
 
   const handleMarkContactRead = useCallback(async (id) => {
-    const remote = await load(KEYS.contactMessages);
-    const list = Array.isArray(remote) ? remote : contactMessages;
-    const next = list.map(m => m.id === id ? { ...m, read: true } : m);
-    setContactMessages(next); await save(KEYS.contactMessages, next);
-  }, [contactMessages]);
+    setContactMessages(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, read: true } : m);
+      const target = next.find(m => m.id === id);
+      if (target) saveContactMessagesToTable([target]);
+      return next;
+    });
+  }, []);
 
   const handleDeleteContactMessage = useCallback(async (id) => {
-    const remote = await load(KEYS.contactMessages);
-    const list = Array.isArray(remote) ? remote : contactMessages;
-    const next = list.filter(m => m.id !== id);
-    setContactMessages(next); await save(KEYS.contactMessages, next);
-  }, [contactMessages]);
+    setContactMessages(prev => prev.filter(m => m.id !== id));
+    await deleteContactMessageFromTable(id);
+  }, []);
 
   const handleToggleKitchen = useCallback(async () => {
     const next = !kitchenOpen;
@@ -6335,23 +6430,21 @@ export default function App() {
   }, [poll]);
 
   // ── Submit a customer poll response ──
-  // Append-only, concurrency-safe: fetch latest → union-merge by id → append.
+  // Now a plain insert to the poll_responses table — no fetch-merge-write
+  // needed, since each response is its own row (the old blob-append
+  // pattern existed only to work around the old blob storage).
   const handleSubmitPollResponse = useCallback(async (response) => {
     if (!response || !response.id) return;
-    const server = (await load(KEYS.pollResponses)) || [];
-    const byId = new Map(server.map(r => [r.id, r]));
-    // fold in what this device already has, then the new one
-    pollResponses.forEach(r => { if (r && r.id) byId.set(r.id, r); });
-    byId.set(response.id, response);
-    let merged = Array.from(byId.values());
-    if (merged.length > MAX_POLL_RESPONSES) merged = merged.slice(-MAX_POLL_RESPONSES);
-    setPollResponses(merged);
-    await save(KEYS.pollResponses, merged);
-  }, [pollResponses]);
+    setPollResponses(prev => {
+      const next = [response, ...prev];
+      return next.length > MAX_POLL_RESPONSES ? next.slice(0, MAX_POLL_RESPONSES) : next;
+    });
+    await savePollResponseToTable(response);
+  }, []);
 
   const handleClearPollResponses = useCallback(async () => {
     setPollResponses([]);
-    await save(KEYS.pollResponses, []);
+    await clearPollResponsesTable();
   }, []);
 
   const handlePlaceOrder = useCallback(async (order) => {
@@ -6656,6 +6749,8 @@ export default function App() {
     setOrdersHistory([]);
     setCustomers([]);
     setCredit([]);
+    setContactMessages([]);
+    setPollResponses([]);
     await Promise.all([
       save(KEYS.todayOrders, []),
       save(KEYS.ordersHistory, []),
@@ -6663,14 +6758,15 @@ export default function App() {
       save(KEYS.credit, []),
       save(KEYS.lastDate, todayStr()),
     ]);
-    // Also clear the new tables — they hold live data now (orders is
-    // fully cut over; customers is still dual-write but shouldn't be
-    // left stale after a reset).
+    // Also clear the new tables — orders, customers, contact_messages
+    // and poll_responses all hold live data now, not just shadow copies.
     try {
       await supabase.from("orders").delete().neq("id", "");
       await supabase.from("customers").delete().neq("phone", "");
+      await supabase.from("contact_messages").delete().neq("id", "");
+      await supabase.from("poll_responses").delete().neq("id", "");
     } catch (err) {
-      console.error("[reset] failed to clear orders/customers tables:", err);
+      console.error("[reset] failed to clear orders/customers/contact_messages/poll_responses tables:", err);
     }
   }, []);
 
