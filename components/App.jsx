@@ -538,6 +538,83 @@ async function clearPollResponsesTable() {
   } catch (err) { notifyStorageError("delete", "poll_responses", err); }
 }
 
+// ─────────────────────────────────────────────
+// STAGE 10 — CREDIT LEDGER
+// Owner-only feature (no customer-facing writes), so this goes
+// straight to the real table — no RPC needed, same as
+// contact_messages/poll_responses. One row per ledger entry; the
+// customer's name/tower/flat are looked up from the `customers` table
+// rather than duplicated on every entry.
+// ─────────────────────────────────────────────
+const CREDIT_ENTRY_KNOWN_FIELDS = new Set(["id", "orderId", "date", "type", "amount", "note"]);
+function creditEntryToRow(phone, entry) {
+  const extra = {};
+  for (const k in entry) if (!CREDIT_ENTRY_KNOWN_FIELDS.has(k)) extra[k] = entry[k];
+  return {
+    id: entry.id,
+    phone,
+    order_id: entry.orderId || null,
+    amount: entry.amount ?? 0,
+    type: entry.type || "adjustment",
+    note: entry.note || null,
+    created_at: entry.date || new Date().toISOString(),
+    extra,
+  };
+}
+function rowToCreditEntry(row) {
+  return {
+    ...(row.extra || {}),
+    id: row.id,
+    orderId: row.order_id,
+    date: row.created_at,
+    type: row.type,
+    amount: row.amount,
+    note: row.note,
+  };
+}
+async function saveCreditEntriesToTable(phone, entries) {
+  if (!entries || entries.length === 0) return;
+  try {
+    const rows = entries.map(e => creditEntryToRow(phone, e));
+    const { error } = await supabase.from("credit_ledger").upsert(rows, { onConflict: "id" });
+    if (error) notifyStorageError("save", "credit_ledger", error);
+  } catch (err) { notifyStorageError("save", "credit_ledger", err); }
+}
+async function deleteCreditForPhone(phone) {
+  try {
+    const { error } = await supabase.from("credit_ledger").delete().eq("phone", phone);
+    if (error) notifyStorageError("delete", "credit_ledger", error);
+  } catch (err) { notifyStorageError("delete", "credit_ledger", err); }
+}
+async function replaceAllCreditEntries(phone, entries) {
+  // Used by reconcile, where the entry set for a phone is fully rebuilt.
+  await deleteCreditForPhone(phone);
+  await saveCreditEntriesToTable(phone, entries);
+}
+// Groups flat ledger rows back into the app's { phone, name, tower,
+// flat, entries[] } shape, using the customers table for the display
+// fields rather than storing them redundantly on every entry.
+async function loadCreditFromTable() {
+  try {
+    const [{ data: rows, error: e1 }, { data: custRows, error: e2 }] = await Promise.all([
+      supabase.from("credit_ledger").select("*").order("created_at", { ascending: true }),
+      supabase.from("customers").select("phone, name, tower, flat"),
+    ]);
+    if (e1) { notifyStorageError("load", "credit_ledger", e1); return null; }
+    if (e2) { notifyStorageError("load", "credit_ledger(customers)", e2); }
+    const custByPhone = new Map((custRows || []).map(c => [c.phone, c]));
+    const byPhone = new Map();
+    for (const row of rows || []) {
+      if (!byPhone.has(row.phone)) {
+        const c = custByPhone.get(row.phone);
+        byPhone.set(row.phone, { phone: row.phone, name: c?.name || "", tower: c?.tower || "", flat: c?.flat || "", entries: [] });
+      }
+      byPhone.get(row.phone).entries.push(rowToCreditEntry(row));
+    }
+    return Array.from(byPhone.values());
+  } catch (err) { notifyStorageError("load", "credit_ledger", err); return null; }
+}
+
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 // Returns today's date as YYYY-MM-DD in India Standard Time (UTC+5:30),
 // not raw UTC. Raw UTC would roll the date over at 5:30 AM IST instead
@@ -6180,7 +6257,7 @@ export default function App() {
         loadTodayOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         loadCustomersFromTable(), // Stage 6: reads from `customers` table now, not app_data
         load(KEYS.lastDate),
-        load(KEYS.credit),
+        loadCreditFromTable(), // Stage 10: reads from `credit_ledger` table now, not app_data
         load(KEYS.kitchenOpen),
         loadHistoryOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         load(KEYS.poll),
@@ -6214,14 +6291,14 @@ export default function App() {
       setOrdersHistory(hist || []);
 
       if (lastDate !== today) {
-        // Day has changed. Credit/khata ledger rollover (unrelated to
-        // orders, still app_data-backed — left as-is per current scope)...
+        // Day has changed. Drop settled (zero-balance) credit customers.
         const storedCredit = cred || [];
         const getBalance = (entries) => entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0);
         const rolledCredit = storedCredit.filter(c => getBalance(c.entries) !== 0);
         setCredit(rolledCredit);
+        const droppedPhones = storedCredit.map(c => c.phone).filter(p => !rolledCredit.some(c => c.phone === p));
         await Promise.all([
-          save(KEYS.credit, rolledCredit),
+          ...droppedPhones.map(p => deleteCreditForPhone(p)),
           save(KEYS.lastDate, today),
         ]);
       }
@@ -6378,7 +6455,16 @@ export default function App() {
       read: false,
     };
     setContactMessages(prev => [entry, ...prev].slice(0, 500));
-    await saveContactMessagesToTable([entry]); // insert-only, no read-modify-write needed with a real table
+    // RPC, not a direct insert: customers aren't authenticated, so RLS
+    // blocks a direct table write here.
+    try {
+      const { error } = await supabase.rpc("submit_contact_message", {
+        p_id: entry.id, p_name: entry.name, p_phone: entry.phone, p_message: entry.message,
+      });
+      if (error) console.error("[submit_contact_message RPC] failed:", error);
+    } catch (err) {
+      console.error("[submit_contact_message RPC] threw:", err);
+    }
     return true;
   }, []);
 
@@ -6439,7 +6525,17 @@ export default function App() {
       const next = [response, ...prev];
       return next.length > MAX_POLL_RESPONSES ? next.slice(0, MAX_POLL_RESPONSES) : next;
     });
-    await savePollResponseToTable(response);
+    // RPC, not a direct insert: customers aren't authenticated, so RLS
+    // blocks a direct table write here.
+    const { id, pollId, choice, ...extra } = response;
+    try {
+      const { error } = await supabase.rpc("submit_poll_response", {
+        p_id: id, p_poll_id: pollId || "unknown", p_phone: response.phone || null, p_choice: choice || "", p_extra: extra,
+      });
+      if (error) console.error("[submit_poll_response RPC] failed:", error);
+    } catch (err) {
+      console.error("[submit_poll_response RPC] threw:", err);
+    }
   }, []);
 
   const handleClearPollResponses = useCallback(async () => {
@@ -6461,7 +6557,16 @@ export default function App() {
     const newTodayOrders = [order, ...merged.filter(o => o.id !== order.id)];
     setTodayOrders(newTodayOrders);
     await save(KEYS.todayOrders, newTodayOrders);
-    dualWriteOrders([order]); // Stage 3 shadow-write, non-blocking
+    // RPC, not a direct table write: customers aren't authenticated
+    // (no owner login), so RLS blocks direct inserts to orders/customers.
+    // The RPC runs with elevated privileges internally but only does
+    // exactly this — insert as 'pending' and update running totals.
+    try {
+      const { error } = await supabase.rpc("place_order", { p_order: order });
+      if (error) console.error("[place_order RPC] failed (app_data still has the order):", error);
+    } catch (err) {
+      console.error("[place_order RPC] threw (app_data still has the order):", err);
+    }
     setCustomers(prev => {
       const next = [...prev];
       const idx = next.findIndex(c => c.phone === order.phone);
@@ -6471,7 +6576,7 @@ export default function App() {
         next.push({ name: order.customerName, phone: order.phone, tower: order.tower, flat: order.flat, totalOrders: 1, totalSpent: order.total, firstOrderDate: order.date, lastOrderDate: order.date });
       }
       save(KEYS.customers, next);
-      dualWriteCustomers([next[idx >= 0 ? idx : next.length - 1]]); // Stage 5 shadow-write, non-blocking
+      // customers table write already happened inside the place_order RPC above
       return next;
     });
   }, [todayOrders]);
@@ -6524,6 +6629,7 @@ export default function App() {
     // realtime retries, or the historical status-regression bug.
     if (nextStatus === "delivered") {
       const orderDetails = order.items.map(i => `${i.name}×${i.qty}`).join(", ");
+      const newEntriesByPhone = []; // collected for the table write below
       setCredit(prev => {
         const idx = prev.findIndex(c => c.phone === order.phone);
         // ── Idempotency guard ──
@@ -6540,6 +6646,7 @@ export default function App() {
           note: "Order delivered",
           orderDetails,
         };
+        newEntriesByPhone.push([order.phone, entry]);
         if (idx >= 0) {
           next[idx] = { ...next[idx], entries: [...next[idx].entries, entry] };
         } else {
@@ -6565,6 +6672,7 @@ export default function App() {
                 amount: rewardAmt,
                 note: `Referral bonus — ${order.customerName} used your code`,
               };
+              newEntriesByPhone.push([order.referrerPhone, rewardEntry]);
               if (rIdx >= 0) {
                 next[rIdx] = { ...next[rIdx], entries: [...next[rIdx].entries, rewardEntry] };
               } else {
@@ -6579,9 +6687,9 @@ export default function App() {
           }
         }
 
-        save(KEYS.credit, next);
         return next;
       });
+      newEntriesByPhone.forEach(([phone, entry]) => saveCreditEntriesToTable(phone, [entry]));
     }
   }, [todayOrders, referralConfig]);
 
@@ -6618,6 +6726,16 @@ export default function App() {
     if (!orderId || !rating) return;
     const today = todayStr();
 
+    // Persist via RPC — customers aren't authenticated, so RLS blocks a
+    // direct table update. The RPC only allows setting the rating, and
+    // only if the order doesn't already have one.
+    try {
+      const { error } = await supabase.rpc("submit_order_rating", { p_order_id: orderId, p_rating: rating });
+      if (error) console.error("[submit_order_rating RPC] failed:", error);
+    } catch (err) {
+      console.error("[submit_order_rating RPC] threw:", err);
+    }
+
     // First check today's orders
     const inToday = todayOrders.some(o => o.id === orderId);
     if (inToday) {
@@ -6631,7 +6749,6 @@ export default function App() {
       const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
       setTodayOrders(updated);
       await save(KEYS.todayOrders, updated);
-      dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
       return;
     }
 
@@ -6644,35 +6761,22 @@ export default function App() {
     const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
     setOrdersHistory(updated);
     await save(KEYS.ordersHistory, updated);
-    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
   }, [todayOrders, ordersHistory]);
 
   const handleAddCredit = useCallback(async (phone, entry) => {
-    setCredit(prev => {
-      const next = prev.map(c => c.phone === phone
-        ? { ...c, entries: [...c.entries, { id: genId(), date: new Date().toISOString(), ...entry }] }
-        : c
-      );
-      save(KEYS.credit, next);
-      return next;
-    });
+    const newEntry = { id: genId(), date: new Date().toISOString(), ...entry };
+    setCredit(prev => prev.map(c => c.phone === phone ? { ...c, entries: [...c.entries, newEntry] } : c));
+    await saveCreditEntriesToTable(phone, [newEntry]);
   }, []);
 
   const handleResetCreditCustomer = useCallback(async (phone) => {
-    setCredit(prev => {
-      // Keep the customer record but clear all entries (balance becomes 0)
-      const next = prev.map(c => c.phone === phone ? { ...c, entries: [] } : c);
-      save(KEYS.credit, next);
-      return next;
-    });
+    setCredit(prev => prev.map(c => c.phone === phone ? { ...c, entries: [] } : c));
+    await deleteCreditForPhone(phone);
   }, []);
 
   const handleDeleteCreditCustomer = useCallback(async (phone) => {
-    setCredit(prev => {
-      const next = prev.filter(c => c.phone !== phone);
-      save(KEYS.credit, next);
-      return next;
-    });
+    setCredit(prev => prev.filter(c => c.phone !== phone));
+    await deleteCreditForPhone(phone);
   }, []);
 
   // ── Reconcile Credit Ledger ──
@@ -6740,7 +6844,11 @@ export default function App() {
     }
 
     setCredit(newCredit);
-    await save(KEYS.credit, newCredit);
+    await Promise.all(newCredit.map(c => replaceAllCreditEntries(c.phone, c.entries)));
+    // Also clear phones that dropped out entirely (zero entries after reconcile)
+    const newPhones = new Set(newCredit.map(c => c.phone));
+    const droppedPhones = (credit || []).map(c => c.phone).filter(p => !newPhones.has(p));
+    await Promise.all(droppedPhones.map(p => deleteCreditForPhone(p)));
   }, [credit, todayOrders, ordersHistory]);
 
   const handleResetAllData = useCallback(async () => {
@@ -6758,15 +6866,17 @@ export default function App() {
       save(KEYS.credit, []),
       save(KEYS.lastDate, todayStr()),
     ]);
-    // Also clear the new tables — orders, customers, contact_messages
-    // and poll_responses all hold live data now, not just shadow copies.
+    // Also clear the new tables — orders, customers, contact_messages,
+    // poll_responses and credit_ledger all hold live data now, not just
+    // shadow copies.
     try {
       await supabase.from("orders").delete().neq("id", "");
       await supabase.from("customers").delete().neq("phone", "");
       await supabase.from("contact_messages").delete().neq("id", "");
       await supabase.from("poll_responses").delete().neq("id", "");
+      await supabase.from("credit_ledger").delete().neq("id", "");
     } catch (err) {
-      console.error("[reset] failed to clear orders/customers/contact_messages/poll_responses tables:", err);
+      console.error("[reset] failed to clear one or more tables:", err);
     }
   }, []);
 
