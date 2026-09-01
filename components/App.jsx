@@ -321,7 +321,7 @@ function orderToRow(o) {
     promo_code: o.promoCode || null,
     referral_code: o.referralCode || null,
     notes: o.notes || null,
-    date: o.date || null,
+    date: o.date || todayStr(), // never let a null date make an order invisible to the today/history queries
     created_at: o.createdAt || new Date().toISOString(),
     preparing_at: o.preparingAt || null,
     ready_at: o.readyAt || null,
