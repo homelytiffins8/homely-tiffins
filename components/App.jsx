@@ -6545,11 +6545,6 @@ export default function App() {
 
   const handlePlaceOrder = useCallback(async (order) => {
     // ── Concurrency-safe write (fetch → merge → write) ──
-    // Read the latest server state, merge with our local view using
-    // status precedence, then prepend the new order. This prevents this
-    // device's possibly-stale local state from overwriting status
-    // advances that other devices (owner dashboard, family members)
-    // have already committed to Supabase.
     const today = todayStr();
     const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
@@ -6557,23 +6552,40 @@ export default function App() {
     const newTodayOrders = [order, ...merged.filter(o => o.id !== order.id)];
     setTodayOrders(newTodayOrders);
     await save(KEYS.todayOrders, newTodayOrders);
+
     // RPC, not a direct table write: customers aren't authenticated
     // (no owner login), so RLS blocks direct inserts to orders/customers.
-    // The RPC runs with elevated privileges internally but only does
-    // exactly this — insert as 'pending' and update running totals.
+    // The RPC recomputes price/discount server-side and may not match
+    // what this optimistic local `order` object assumed — so once it
+    // returns, we re-fetch the actual row and correct local state to
+    // match. Without this, the dashboard could show the client's
+    // (possibly wrong / tampered) total instead of what was really
+    // charged and stored.
+    let authoritativeOrder = null;
     try {
       const { error } = await supabase.rpc("place_order", { p_order: order });
-      if (error) console.error("[place_order RPC] failed (app_data still has the order):", error);
+      if (error) {
+        console.error("[place_order RPC] failed (app_data still has the order):", error);
+      } else {
+        const { data: row, error: fetchErr } = await supabase.from("orders").select("*").eq("id", order.id).maybeSingle();
+        if (!fetchErr && row) authoritativeOrder = rowToOrder(row);
+      }
     } catch (err) {
       console.error("[place_order RPC] threw (app_data still has the order):", err);
     }
+
+    if (authoritativeOrder) {
+      setTodayOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...authoritativeOrder } : o));
+    }
+
+    const finalOrder = authoritativeOrder || order;
     setCustomers(prev => {
       const next = [...prev];
-      const idx = next.findIndex(c => c.phone === order.phone);
+      const idx = next.findIndex(c => c.phone === finalOrder.phone);
       if (idx >= 0) {
-        next[idx] = { ...next[idx], totalOrders: next[idx].totalOrders + 1, totalSpent: next[idx].totalSpent + order.total, lastOrderDate: order.date, tower: order.tower, flat: order.flat };
+        next[idx] = { ...next[idx], totalOrders: next[idx].totalOrders + 1, totalSpent: next[idx].totalSpent + finalOrder.total, lastOrderDate: finalOrder.date, tower: finalOrder.tower, flat: finalOrder.flat };
       } else {
-        next.push({ name: order.customerName, phone: order.phone, tower: order.tower, flat: order.flat, totalOrders: 1, totalSpent: order.total, firstOrderDate: order.date, lastOrderDate: order.date });
+        next.push({ name: finalOrder.customerName, phone: finalOrder.phone, tower: finalOrder.tower, flat: finalOrder.flat, totalOrders: 1, totalSpent: finalOrder.total, firstOrderDate: finalOrder.date, lastOrderDate: finalOrder.date });
       }
       save(KEYS.customers, next);
       // customers table write already happened inside the place_order RPC above
