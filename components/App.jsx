@@ -13,17 +13,18 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ─────────────────────────────────────────────
 const KEYS = {
   menu: "ht_menu",
-  todayOrders: "ht_orders_today",
-  ordersHistory: "ht_orders_history", // permanent — archived past orders (pruned to ~100 days)
-  customers: "ht_customers",
+  // ── RETIRED (migrated to their own tables; nothing reads or writes
+  // these anymore — kept only so old rows can be identified/cleaned):
+  //   ht_orders_today, ht_orders_history  → `orders` table
+  //   ht_customers                        → `customers` table
+  //   ht_credit_ledger                    → `credit_ledger` table
+  //   ht_contact_messages                 → `contact_messages` table
+  //   ht_poll_responses                   → `poll_responses` table
   lastDate: "ht_last_open_date",
-  credit: "ht_credit_ledger",     // permanent — khata book style payment ledger
   kitchenOpen: "ht_kitchen_open", // boolean — owner controls if accepting orders
   poll: "ht_poll",                // owner-defined customer poll config { id, active, question, options[] }
-  pollResponses: "ht_poll_responses", // customer poll submissions — OWNER-ONLY view, never shown to customers
   planConfig: "ht_plan_config",   // daily thali-plan config: sabjis/rice/salad/raita/sweet + plan prices
   contactInfo: "ht_contact_info", // owner-published contact channels { phone, whatsapp, email }
-  contactMessages: "ht_contact_messages", // customer-submitted messages inbox — owner-only
   promoCodes: "ht_promo_codes",           // owner-defined promo/discount codes (array)
   referralConfig: "ht_referral_config",   // referral programme settings { enabled, referredDiscount, referrerReward }
 };
@@ -356,26 +357,23 @@ function rowToOrder(row) {
     deliveredAt: row.delivered_at,
   };
 }
-async function dualWriteOrders(orders) {
+// Writes orders to the `orders` table — the single source of truth.
+// (Was previously a "dual-write" alongside an app_data blob copy during
+// the migration; that fallback has been removed.)
+async function writeOrders(orders) {
   if (!orders || orders.length === 0) return;
   try {
     const rows = orders.map(orderToRow);
     const { error } = await supabase.from("orders").upsert(rows, { onConflict: "id" });
-    if (error) console.error("[dual-write] orders upsert failed (app_data remains source of truth):", error);
+    if (error) notifyStorageError("save", "orders", error);
   } catch (err) {
-    console.error("[dual-write] orders upsert threw (app_data remains source of truth):", err);
+    notifyStorageError("save", "orders", err);
   }
 }
 
 // ─────────────────────────────────────────────
-// STAGE 4 — READ FROM THE NEW `orders` TABLE
+// ORDERS: read from the `orders` table
 // ─────────────────────────────────────────────
-// Reads now come from the real `orders` table instead of the
-// app_data blob. Writes still go to BOTH (dualWriteOrders above +
-// the existing save(KEYS.todayOrders/…) calls) so app_data stays a
-// live fallback — if anything looks wrong after this, reverting the
-// read functions below back to load(KEYS.todayOrders)/load(KEYS.ordersHistory)
-// fully restores the old behaviour without any data loss.
 async function loadTodayOrdersFromTable(today) {
   try {
     const { data, error } = await supabase.from("orders").select("*").eq("date", today);
@@ -394,9 +392,8 @@ async function loadHistoryOrdersFromTable(excludeDate) {
 }
 
 // ─────────────────────────────────────────────
-// STAGE 5 — CUSTOMERS: dual-write to the new `customers` table
-// (same pattern as orders: reads still come from app_data for now,
-// this only mirrors writes so we can verify before cutting over.)
+// CUSTOMERS: the `customers` table is the single source of truth.
+// Writes happen server-side inside the place_order RPC.
 // ─────────────────────────────────────────────
 function customerToRow(c) {
   return {
@@ -411,16 +408,6 @@ function customerToRow(c) {
     referral_code: getReferralCode(c.phone) || null,
     updated_at: new Date().toISOString(),
   };
-}
-async function dualWriteCustomers(customersList) {
-  if (!customersList || customersList.length === 0) return;
-  try {
-    const rows = customersList.map(customerToRow);
-    const { error } = await supabase.from("customers").upsert(rows, { onConflict: "phone" });
-    if (error) console.error("[dual-write] customers upsert failed (app_data remains source of truth):", error);
-  } catch (err) {
-    console.error("[dual-write] customers upsert threw (app_data remains source of truth):", err);
-  }
 }
 // Inverse of customerToRow — reconstructs the app's customer object shape.
 function rowToCustomer(row) {
@@ -6311,52 +6298,15 @@ export default function App() {
   // realtime subscription handler AND the manual catch-up sync below, so
   // both paths use identical merge/precedence logic. ──
   const applyKeyUpdate = useCallback((changedKey, newVal) => {
+    // Only config still lives in app_data. Orders, customers, credit,
+    // contact messages and poll responses each have their own table and
+    // their own realtime subscription (see below), so nothing
+    // transactional is applied from an app_data payload anymore.
     if (changedKey === KEYS.menu)        setMenu(newVal);
     if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
     if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
-    // contactMessages/pollResponses app_data keys are no longer written to
-    // (Stage 7 moved them fully to their own tables), so these two branches
-    // are now inert — left in place rather than removed, since it's
-    // harmless dead code and avoids touching more than necessary.
-    if (changedKey === KEYS.contactMessages) setContactMessages(Array.isArray(newVal) ? newVal : []);
-    if (changedKey === KEYS.todayOrders) {
-      const incoming = newVal || [];
-      // Empty payload = authoritative wipe (daily rollover / manual reset).
-      // Apply as-is so resets propagate to all devices.
-      if (incoming.length === 0) {
-        setTodayOrders([]);
-      } else {
-        // Non-empty: merge with local using status precedence so a
-        // late-arriving message with an OLDER status can't
-        // overwrite a newer one we already have. Also strip stale-day
-        // orders defensively.
-        const today = todayStr();
-        const filtered = incoming.filter(o => o.date === today);
-        setTodayOrders(current => mergeOrders(current, filtered));
-      }
-    }
-    if (changedKey === KEYS.ordersHistory) {
-      const incoming = newVal || [];
-      if (incoming.length === 0) {
-        setOrdersHistory([]);
-      } else {
-        setOrdersHistory(current => mergeOrders(current, incoming));
-      }
-    }
-    if (changedKey === KEYS.customers)   setCustomers(newVal || []);
-    if (changedKey === KEYS.credit)      setCredit(newVal || []);
     if (changedKey === KEYS.kitchenOpen) setKitchenOpen(!!newVal);
     if (changedKey === KEYS.poll)        setPoll(newVal || null);
-    if (changedKey === KEYS.pollResponses) {
-      // Union-merge by id so a late message can't drop responses
-      // this device already knows about.
-      const incoming = newVal || [];
-      setPollResponses(current => {
-        const byId = new Map(current.map(r => [r.id, r]));
-        incoming.forEach(r => { if (r && r.id) byId.set(r.id, r); });
-        return Array.from(byId.values());
-      });
-    }
     if (changedKey === KEYS.promoCodes) setPromoCodes(Array.isArray(newVal) ? newVal : []);
     if (changedKey === KEYS.referralConfig) setReferralConfig({ ...defaultReferralConfig(), ...(newVal || {}) });
   }, []);
@@ -6368,15 +6318,34 @@ export default function App() {
   // devices during that gap would otherwise be missed forever. This is the
   // safety net that backfills them once the app is active again. ──
   const catchUpSync = useCallback(async () => {
-    const keysToSync = Object.values(KEYS);
-    const results = await Promise.all(keysToSync.map(k => load(k)));
-    keysToSync.forEach((k, i) => {
+    // Config keys still live in app_data, so fetch and apply those.
+    const configKeys = [KEYS.menu, KEYS.planConfig, KEYS.contactInfo, KEYS.kitchenOpen,
+                        KEYS.poll, KEYS.promoCodes, KEYS.referralConfig];
+    const results = await Promise.all(configKeys.map(k => load(k)));
+    configKeys.forEach((k, i) => {
       // load() returns null both when a row genuinely doesn't exist yet AND
       // when the fetch itself failed (network blip). Skipping null here
-      // means a flaky catch-up request can never wipe out real local data
-      // (e.g. today's orders) — it just quietly retries next wake/online event.
+      // means a flaky catch-up request can never wipe out real local data.
       if (results[i] !== null) applyKeyUpdate(k, results[i]);
     });
+
+    // Everything else now lives in its own table — re-read those directly
+    // rather than going through the stale app_data blobs.
+    const today = todayStr();
+    const [tOrders, hOrders, custs, cred, msgs, polls] = await Promise.all([
+      loadTodayOrdersFromTable(today),
+      loadHistoryOrdersFromTable(today),
+      loadCustomersFromTable(),
+      loadCreditFromTable(),
+      loadContactMessagesFromTable(),
+      loadPollResponsesFromTable(),
+    ]);
+    if (tOrders) setTodayOrders(current => mergeOrders(current, tOrders));
+    if (hOrders) setOrdersHistory(current => mergeOrders(current, hOrders));
+    if (custs) setCustomers(custs);
+    if (cred) setCredit(cred);
+    if (msgs) setContactMessages(msgs);
+    if (polls) setPollResponses(polls);
   }, [applyKeyUpdate]);
 
   // ── Real-time sync via Supabase: instantly updates all devices when data changes ──
@@ -6389,6 +6358,31 @@ export default function App() {
         const changedKey = payload.new?.key || payload.old?.key;
         if (!changedKey) return;
         applyKeyUpdate(changedKey, payload.new?.value);
+      })
+      // The migrated tables need their own subscriptions — listening only
+      // to app_data would miss any change written directly to them
+      // (e.g. a customer order placed via the place_order RPC).
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
+        const today = todayStr();
+        const [t, h] = await Promise.all([loadTodayOrdersFromTable(today), loadHistoryOrdersFromTable(today)]);
+        if (t) setTodayOrders(current => mergeOrders(current, t));
+        if (h) setOrdersHistory(current => mergeOrders(current, h));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, async () => {
+        const rows = await loadCustomersFromTable();
+        if (rows) setCustomers(rows);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "credit_ledger" }, async () => {
+        const rows = await loadCreditFromTable();
+        if (rows) setCredit(rows);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "contact_messages" }, async () => {
+        const rows = await loadContactMessagesFromTable();
+        if (rows) setContactMessages(rows);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "poll_responses" }, async () => {
+        const rows = await loadPollResponsesFromTable();
+        if (rows) setPollResponses(rows);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -6551,7 +6545,6 @@ export default function App() {
     const merged = mergeOrders(localToday, serverOrders);
     const newTodayOrders = [order, ...merged.filter(o => o.id !== order.id)];
     setTodayOrders(newTodayOrders);
-    await save(KEYS.todayOrders, newTodayOrders);
 
     // RPC, not a direct table write: customers aren't authenticated
     // (no owner login), so RLS blocks direct inserts to orders/customers.
@@ -6587,7 +6580,6 @@ export default function App() {
       } else {
         next.push({ name: finalOrder.customerName, phone: finalOrder.phone, tower: finalOrder.tower, flat: finalOrder.flat, totalOrders: 1, totalSpent: finalOrder.total, firstOrderDate: finalOrder.date, lastOrderDate: finalOrder.date });
       }
-      save(KEYS.customers, next);
       // customers table write already happened inside the place_order RPC above
       return next;
     });
@@ -6609,8 +6601,7 @@ export default function App() {
     const rCurr = STATUS_RANK[order.status] ?? -1;
     if (rNext <= rCurr) {
       setTodayOrders(base);
-      await save(KEYS.todayOrders, base);
-      dualWriteOrders(base); // Stage 3 shadow-write, non-blocking
+      await writeOrders(base);
       return;
     }
 
@@ -6631,8 +6622,7 @@ export default function App() {
       return next;
     });
     setTodayOrders(updated);
-    await save(KEYS.todayOrders, updated);
-    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
+    await writeOrders(updated.filter(o => o.id === orderId));
 
     // When delivered → auto-debit credit ledger.
     // Idempotent: each order can only be credited ONCE, no matter how many
@@ -6718,15 +6708,13 @@ export default function App() {
     // The reject click came from a stale UI — sync to reality and bail.
     if (order.status === "dispatched" || order.status === "delivered") {
       setTodayOrders(base);
-      await save(KEYS.todayOrders, base);
-      dualWriteOrders(base); // Stage 3 shadow-write, non-blocking
+      await writeOrders(base);
       return;
     }
 
     const updated = base.map(o => o.id === orderId ? { ...o, status: "rejected" } : o);
     setTodayOrders(updated);
-    await save(KEYS.todayOrders, updated);
-    dualWriteOrders(updated.filter(o => o.id === orderId)); // Stage 3 shadow-write, non-blocking
+    await writeOrders(updated.filter(o => o.id === orderId));
   }, [todayOrders]);
 
   // ── Submit customer rating ──
@@ -6759,8 +6747,7 @@ export default function App() {
       // Idempotency: don't overwrite an existing rating
       if (target.rating) return;
       const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
-      setTodayOrders(updated);
-      await save(KEYS.todayOrders, updated);
+      setTodayOrders(updated); // already persisted via the submit_order_rating RPC above
       return;
     }
 
@@ -6771,8 +6758,7 @@ export default function App() {
     if (!target) return;
     if (target.rating) return;
     const updated = base.map(o => o.id === orderId ? { ...o, rating } : o);
-    setOrdersHistory(updated);
-    await save(KEYS.ordersHistory, updated);
+    setOrdersHistory(updated); // already persisted via the submit_order_rating RPC above
   }, [todayOrders, ordersHistory]);
 
   const handleAddCredit = useCallback(async (phone, entry) => {
@@ -6871,24 +6857,16 @@ export default function App() {
     setCredit([]);
     setContactMessages([]);
     setPollResponses([]);
-    await Promise.all([
-      save(KEYS.todayOrders, []),
-      save(KEYS.ordersHistory, []),
-      save(KEYS.customers, []),
-      save(KEYS.credit, []),
-      save(KEYS.lastDate, todayStr()),
-    ]);
-    // Also clear the new tables — orders, customers, contact_messages,
-    // poll_responses and credit_ledger all hold live data now, not just
-    // shadow copies.
+    await save(KEYS.lastDate, todayStr());
+    // The five tables are the only store for transactional data now.
     try {
+      await supabase.from("credit_ledger").delete().neq("id", "");
       await supabase.from("orders").delete().neq("id", "");
       await supabase.from("customers").delete().neq("phone", "");
       await supabase.from("contact_messages").delete().neq("id", "");
       await supabase.from("poll_responses").delete().neq("id", "");
-      await supabase.from("credit_ledger").delete().neq("id", "");
     } catch (err) {
-      console.error("[reset] failed to clear one or more tables:", err);
+      notifyStorageError("delete", "reset all data", err);
     }
   }, []);
 
