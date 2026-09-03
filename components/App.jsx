@@ -4118,7 +4118,18 @@ function OrderCard({ order, onAdvance, onReject, now }) {
             )}
           </div>
         </div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: C.saffron }}>₹{order.total}</div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.saffron }}>₹{order.total}</div>
+          {(order.promoCode || order.referralCode) && (
+            <div style={{
+              marginTop: 2, fontSize: 10, fontWeight: 700, color: "#2E7D32",
+              background: "#E8F5E9", border: "1px solid #C8E6C9",
+              borderRadius: 4, padding: "2px 6px", display: "inline-block",
+            }}>
+              🏷 {order.promoCode ? `Promo: ${order.promoCode}` : `Referral: ${order.referralCode}`}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ background: C.cream, borderRadius: 8, padding: "8px 12px", marginBottom: hasInstructions ? 8 : 12 }}>
@@ -6650,7 +6661,7 @@ export default function App() {
       const pending = []; // [phone, entry, displayFields]
 
       const debitDone = (current.find(c => c.phone === order.phone)?.entries || [])
-        .some(e => e.orderId === order.id);
+        .some(e => e.id === "dlv:" + order.id);
       if (!debitDone) {
         pending.push([order.phone, {
           // Deterministic id: an upsert on the same order can never create a
@@ -6667,17 +6678,25 @@ export default function App() {
 
       // ── Referral payout (idempotent) ──
       // If this delivered order used a referral code, pay the referrer their
-      // reward as a CREDIT entry on their ledger. Keyed on
-      // "referral:<orderId>" so it's paid at most once even under retries.
+      // reward as a CREDIT entry on their ledger.
+      //
+      // FIX: order_id used to be set to a synthetic key ("referral:<id>")
+      // purely to make the idempotency check unique. But credit_ledger.order_id
+      // has a foreign-key constraint against orders.id, and "referral:<id>" is
+      // never a real row there — so this insert failed with a foreign-key
+      // violation on every single referral payout, silently (the error banner
+      // auto-hides in 6s). order_id now holds the REAL order id (always valid,
+      // since it's the same order whose debit just saved). Idempotency is
+      // checked via the entry's own deterministic id ("ref:<orderId>") instead.
       if (order.referrerPhone && order.referrerRewardPending) {
         const rewardAmt = Math.max(0, Number(referralConfig?.referrerReward) || 0);
-        const rewardKey = "referral:" + order.id;
+        const rewardEntryId = "ref:" + order.id;
         const alreadyPaid = (current.find(c => c.phone === order.referrerPhone)?.entries || [])
-          .some(e => e.orderId === rewardKey);
+          .some(e => e.id === rewardEntryId);
         if (rewardAmt > 0 && !alreadyPaid) {
           pending.push([order.referrerPhone, {
-            id: "ref:" + order.id,
-            orderId: rewardKey, // synthetic id for idempotency
+            id: rewardEntryId,
+            orderId: order.id, // real order id — satisfies the FK constraint
             date: new Date().toISOString(),
             type: "credit",
             amount: rewardAmt,
@@ -6693,7 +6712,10 @@ export default function App() {
           for (const [phone, entry, meta] of pending) {
             const idx = next.findIndex(c => c.phone === phone);
             if (idx >= 0) {
-              if (next[idx].entries.some(e => e.id === entry.id || e.orderId === entry.orderId)) continue;
+              // Dedup by id only — orderId is no longer unique per entry
+              // (a debit and its referral credit can now share the same
+              // real orderId while living on different customers' ledgers).
+              if (next[idx].entries.some(e => e.id === entry.id)) continue;
               next = next.map((c, i) => i === idx ? { ...c, entries: [...c.entries, entry] } : c);
             } else {
               next = [...next, { phone, name: meta.name, tower: meta.tower, flat: meta.flat, entries: [entry] }];
