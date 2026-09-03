@@ -6851,7 +6851,12 @@ export default function App() {
     }
 
     const makeDebit = (o) => ({
-      id: genId(),
+      // Deterministic, matching the live delivery-flow id ("dlv:"+orderId).
+      // Keeping these consistent means the delivery flow's own duplicate
+      // guard still recognises a reconciled debit as already-existing, so
+      // the two code paths can never together produce two debit rows for
+      // the same order.
+      id: "dlv:" + o.id,
       orderId: o.id,
       date: o.createdAt || new Date().toISOString(),
       type: "debit",
