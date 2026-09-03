@@ -6217,6 +6217,13 @@ export default function App() {
   const [ordersHistory, setOrdersHistory] = useState([]); // archived past orders (~100 days)
   const [customers, setCustomers] = useState([]);
   const [credit, setCredit] = useState([]);      // permanent credit ledger
+  // Always-current mirror of `credit`, so handlers can make idempotency
+  // decisions from the latest ledger without pulling `credit` into their
+  // dependency arrays (which would recreate them on every ledger change).
+  const creditRef = useRef(credit);
+  useEffect(() => { creditRef.current = credit; }, [credit]);
+  const customersRef = useRef(customers);
+  useEffect(() => { customersRef.current = customers; }, [customers]);
   const [kitchenOpen, setKitchenOpen] = useState(true); // owner-controlled
   const [poll, setPoll] = useState(null);               // owner-defined customer poll
   const [pollResponses, setPollResponses] = useState([]); // customer poll submissions (owner-only)
@@ -6631,67 +6638,72 @@ export default function App() {
     // realtime retries, or the historical status-regression bug.
     if (nextStatus === "delivered") {
       const orderDetails = order.items.map(i => `${i.name}×${i.qty}`).join(", ");
-      const newEntriesByPhone = []; // collected for the table write below
-      setCredit(prev => {
-        const idx = prev.findIndex(c => c.phone === order.phone);
-        // ── Idempotency guard ──
-        if (idx >= 0 && prev[idx].entries.some(e => e.orderId === order.id)) {
-          return prev; // this order is already credited; do nothing
-        }
-        const next = [...prev];
-        const entry = {
-          id: genId(),
+
+      // ── Build the new entries FIRST, outside any setState updater. ──
+      // These used to be created inside the setCredit() updater and read on
+      // the line after it. React does not run an updater synchronously when
+      // setState is called — it queues it and runs it during render — so the
+      // list was almost always still empty when the table write executed, and
+      // the debit never reached `credit_ledger`. It showed in the UI until the
+      // next refresh or realtime reload, then silently vanished.
+      const current = creditRef.current || [];
+      const pending = []; // [phone, entry, displayFields]
+
+      const debitDone = (current.find(c => c.phone === order.phone)?.entries || [])
+        .some(e => e.orderId === order.id);
+      if (!debitDone) {
+        pending.push([order.phone, {
+          // Deterministic id: an upsert on the same order can never create a
+          // second row, even if local state was stale when we decided to write.
+          id: "dlv:" + order.id,
           orderId: order.id, // ← key to idempotency
           date: new Date().toISOString(),
           type: "debit",
           amount: order.total,
           note: "Order delivered",
           orderDetails,
-        };
-        newEntriesByPhone.push([order.phone, entry]);
-        if (idx >= 0) {
-          next[idx] = { ...next[idx], entries: [...next[idx].entries, entry] };
-        } else {
-          next.push({ phone: order.phone, name: order.customerName, tower: order.tower, flat: order.flat, entries: [entry] });
-        }
+        }, { name: order.customerName, tower: order.tower, flat: order.flat }]);
+      }
 
-        // ── Referral payout (idempotent) ──
-        // If this delivered order used a referral code, pay the referrer their
-        // reward as a CREDIT entry on their ledger. Keyed on
-        // "referral:<orderId>" so it's paid at most once even under retries.
-        if (order.referrerPhone && order.referrerRewardPending) {
-          const rewardAmt = Math.max(0, Number(referralConfig?.referrerReward) || 0);
-          if (rewardAmt > 0) {
-            const rIdx = next.findIndex(c => c.phone === order.referrerPhone);
-            const rewardKey = "referral:" + order.id;
-            const alreadyPaid = rIdx >= 0 && next[rIdx].entries.some(e => e.orderId === rewardKey);
-            if (!alreadyPaid) {
-              const rewardEntry = {
-                id: genId(),
-                orderId: rewardKey, // synthetic id for idempotency
-                date: new Date().toISOString(),
-                type: "credit",
-                amount: rewardAmt,
-                note: `Referral bonus — ${order.customerName} used your code`,
-              };
-              newEntriesByPhone.push([order.referrerPhone, rewardEntry]);
-              if (rIdx >= 0) {
-                next[rIdx] = { ...next[rIdx], entries: [...next[rIdx].entries, rewardEntry] };
-              } else {
-                next.push({
-                  phone: order.referrerPhone,
-                  name: order.referrerName || "Referrer",
-                  tower: "", flat: "",
-                  entries: [rewardEntry],
-                });
-              }
+      // ── Referral payout (idempotent) ──
+      // If this delivered order used a referral code, pay the referrer their
+      // reward as a CREDIT entry on their ledger. Keyed on
+      // "referral:<orderId>" so it's paid at most once even under retries.
+      if (order.referrerPhone && order.referrerRewardPending) {
+        const rewardAmt = Math.max(0, Number(referralConfig?.referrerReward) || 0);
+        const rewardKey = "referral:" + order.id;
+        const alreadyPaid = (current.find(c => c.phone === order.referrerPhone)?.entries || [])
+          .some(e => e.orderId === rewardKey);
+        if (rewardAmt > 0 && !alreadyPaid) {
+          pending.push([order.referrerPhone, {
+            id: "ref:" + order.id,
+            orderId: rewardKey, // synthetic id for idempotency
+            date: new Date().toISOString(),
+            type: "credit",
+            amount: rewardAmt,
+            note: `Referral bonus — ${order.customerName} used your code`,
+          }, { name: order.referrerName || "Referrer", tower: "", flat: "" }]);
+        }
+      }
+
+      if (pending.length) {
+        // The updater is now pure — it only merges the already-built entries.
+        setCredit(prev => {
+          let next = prev;
+          for (const [phone, entry, meta] of pending) {
+            const idx = next.findIndex(c => c.phone === phone);
+            if (idx >= 0) {
+              if (next[idx].entries.some(e => e.id === entry.id || e.orderId === entry.orderId)) continue;
+              next = next.map((c, i) => i === idx ? { ...c, entries: [...c.entries, entry] } : c);
+            } else {
+              next = [...next, { phone, name: meta.name, tower: meta.tower, flat: meta.flat, entries: [entry] }];
             }
           }
-        }
-
-        return next;
-      });
-      newEntriesByPhone.forEach(([phone, entry]) => saveCreditEntriesToTable(phone, [entry]));
+          return next;
+        });
+        // Runs unconditionally now, not as a side effect of an updater.
+        await Promise.all(pending.map(([phone, entry]) => saveCreditEntriesToTable(phone, [entry])));
+      }
     }
   }, [todayOrders, referralConfig]);
 
@@ -6762,13 +6774,33 @@ export default function App() {
   }, [todayOrders, ordersHistory]);
 
   const handleAddCredit = useCallback(async (phone, entry) => {
+    if (!phone) return;
     const newEntry = { id: genId(), date: new Date().toISOString(), ...entry };
-    setCredit(prev => prev.map(c => c.phone === phone ? { ...c, entries: [...c.entries, newEntry] } : c));
+    setCredit(prev => {
+      // Previously this used prev.map(), so if the phone had no ledger record
+      // in local state the row was written to the table but never appeared in
+      // the UI until a reload. Now an absent phone gets a record created.
+      if (prev.some(c => c.phone === phone)) {
+        return prev.map(c => c.phone === phone ? { ...c, entries: [...c.entries, newEntry] } : c);
+      }
+      const cust = customersRef.current.find(c => c.phone === phone);
+      return [...prev, {
+        phone,
+        name: cust?.name || "",
+        tower: cust?.tower || "",
+        flat: cust?.flat || "",
+        entries: [newEntry],
+      }];
+    });
     await saveCreditEntriesToTable(phone, [newEntry]);
   }, []);
 
   const handleResetCreditCustomer = useCallback(async (phone) => {
-    setCredit(prev => prev.map(c => c.phone === phone ? { ...c, entries: [] } : c));
+    // deleteCreditForPhone removes every row for this phone, and
+    // loadCreditFromTable only rebuilds phones that still have rows — so the
+    // customer disappears on the next reload. Drop them locally too, rather
+    // than leaving a zero-entry record that reality doesn't match.
+    setCredit(prev => prev.filter(c => c.phone !== phone));
     await deleteCreditForPhone(phone);
   }, []);
 
