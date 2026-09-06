@@ -14,6 +14,9 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
         <link rel="icon" href="/logo.png" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#E0731A" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body style={{ margin: 0 }}>{children}</body>
     </html>
