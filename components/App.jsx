@@ -6439,6 +6439,17 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
+  // Register the PWA service worker once on mount. It does not cache any
+  // data/API responses (Supabase reads must always hit the network) - it
+  // only exists so the app is installable as a home-screen app.
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Installability is a nice-to-have; don't surface errors to users.
+      });
+    }
+  }, []);
+
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
   const [contactInfo, setContactInfo] = useState({ phone: "", whatsapp: "", email: "" });
