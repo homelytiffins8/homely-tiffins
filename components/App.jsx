@@ -390,6 +390,20 @@ async function loadHistoryOrdersFromTable(excludeDate) {
     return (data || []).map(rowToOrder);
   } catch (err) { notifyStorageError("load", "orders(history)", err); return null; }
 }
+// Customer-facing read path: the `orders` table has no anon SELECT policy
+// (owner_full_access_orders only grants the authenticated/owner role), so
+// customers can't read it directly — a plain select("*") silently returns
+// nothing for them. This RPC (SECURITY DEFINER, granted to anon) returns
+// only the rows matching a given phone number, which is what the customer
+// tracking UI and the "rate your last order" prompt actually need.
+async function loadOrdersByPhoneFromTable(phone) {
+  if (!phone) return [];
+  try {
+    const { data, error } = await supabase.rpc("get_orders_by_phone", { p_phone: phone });
+    if (error) { notifyStorageError("load", "orders(by phone)", error); return null; }
+    return (data || []).map(rowToOrder);
+  } catch (err) { notifyStorageError("load", "orders(by phone)", err); return null; }
+}
 
 // ─────────────────────────────────────────────
 // CUSTOMERS: the `customers` table is the single source of truth.
@@ -2047,6 +2061,36 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     } catch { /* private mode / storage disabled — silently ignore */ }
   }, []);
 
+  // ── Customer's own orders, fetched by phone via RPC ──
+  // The `orders` table has no anon SELECT policy (RLS only allows the owner
+  // to read it directly), so the `orders`/`ordersHistory` props — populated
+  // via a plain table select — are always empty here. This state is the
+  // customer-side substitute: fetched via a phone-scoped RPC, and polled
+  // (since realtime postgres_changes is RLS-gated too and won't reach an
+  // anonymous client) so status changes like "preparing" → "ready" actually
+  // reach the tracking screen without needing a manual page refresh.
+  const [myOrders, setMyOrders] = useState([]);
+  const refreshMyOrders = useCallback(async (phone) => {
+    if (!phone) return;
+    const rows = await loadOrdersByPhoneFromTable(phone);
+    if (rows) setMyOrders(rows);
+  }, []);
+  useEffect(() => {
+    if (!rememberedPhone) return;
+    refreshMyOrders(rememberedPhone);
+    const id = setInterval(() => refreshMyOrders(rememberedPhone), 15000);
+    const onFocus = () => refreshMyOrders(rememberedPhone);
+    window.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onFocus);
+    };
+  }, [rememberedPhone, refreshMyOrders]);
+
   // Find the most recent unrated DELIVERED order for the remembered customer.
   // Looks in both todayOrders (in case they had an earlier meal today) and
   // ordersHistory (previous days, up to ~100 days retained).
@@ -2055,6 +2099,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     const candidates = [
       ...(orders || []),
       ...(ordersHistory || []),
+      ...(myOrders || []),
     ].filter(o =>
       o.phone === rememberedPhone &&
       o.status === "delivered" &&
@@ -2160,6 +2205,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         setRememberedPhone(order.phone);
       }
     } catch { /* private mode / storage disabled — silently ignore */ }
+    // setRememberedPhone above won't re-trigger the fetch effect if this
+    // phone was already remembered from an earlier order, so pull the
+    // freshly-placed order in explicitly once the place_order RPC (fired by
+    // onPlaceOrder, above) has had a moment to land.
+    if (order.phone) setTimeout(() => refreshMyOrders(order.phone), 1500);
 
     // Show the feedback poll once, if it's live and this device hasn't
     // already answered/dismissed it. Small delay so the tracking screen
@@ -2169,19 +2219,26 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     }
   };
 
-  const trackOrder = () => {
+  const trackOrder = async () => {
     const trimmed = lookupPhone.trim();
-    const found = orders.find(o => o.phone === trimmed && o.date === todayStr());
-    if (found) { setActiveOrder(found); setStep("track"); }
-    else setShowInvalidPhone(true);
+    const rows = await loadOrdersByPhoneFromTable(trimmed);
+    const found = (rows || []).find(o => o.date === todayStr());
+    if (found) {
+      setMyOrders(rows);
+      setRememberedPhone(trimmed); // start polling this phone going forward
+      setActiveOrder(found);
+      setStep("track");
+    } else {
+      setShowInvalidPhone(true);
+    }
   };
 
   useEffect(() => {
     if (step === "track" && activeOrder) {
-      const updated = orders.find(o => o.id === activeOrder.id);
+      const updated = myOrders.find(o => o.id === activeOrder.id);
       if (updated) setActiveOrder(updated);
     }
-  }, [orders]);
+  }, [myOrders]);
 
   const menuAvailable = kitchenOpen && (
     (menu && menu.date === todayStr() && menuItems.length > 0) || plansAvailable
@@ -2200,7 +2257,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
   // ── TRACK VIEW ──
   if (step === "track" && activeOrder) {
-    const live = orders.find(o => o.id === activeOrder.id) || activeOrder;
+    const live = myOrders.find(o => o.id === activeOrder.id) || activeOrder;
     const isRejected = live.status === "rejected";
     const stuckPending = live.status === "pending" &&
       (nowTick - new Date(live.createdAt).getTime()) > 15 * 60 * 1000;
@@ -2557,7 +2614,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // Detect any active order for the remembered phone to show the Track card
   // in either "active" (with progress dots) or "empty" state.
   const trackActiveOrder = rememberedPhone
-    ? (orders || []).find(o =>
+    ? (myOrders || []).find(o =>
         o.phone === rememberedPhone &&
         (o.status === "pending" || o.status === "preparing" || o.status === "ready" || o.status === "dispatched")
       )
