@@ -587,6 +587,12 @@ async function deleteCreditForPhone(phone) {
     if (error) notifyStorageError("delete", "credit_ledger", error);
   } catch (err) { notifyStorageError("delete", "credit_ledger", err); }
 }
+async function deleteCreditEntryRow(entryId) {
+  try {
+    const { error } = await supabase.from("credit_ledger").delete().eq("id", entryId);
+    if (error) notifyStorageError("delete", "credit_ledger", error);
+  } catch (err) { notifyStorageError("delete", "credit_ledger", err); }
+}
 async function replaceAllCreditEntries(phone, entries) {
   // Used by reconcile, where the entry set for a phone is fully rebuilt.
   await deleteCreditForPhone(phone);
@@ -5470,12 +5476,22 @@ function filterCreditByDate(credit, fromDateStr) {
                .filter(c => c.entries.length > 0);
 }
 
-function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredit, onResetCustomer, onDeleteCustomer, onReconcile }) {
+function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredit, onDeleteEntry, onResetCustomer, onDeleteCustomer, onReconcile }) {
   const [selected, setSelected]       = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [payAmt, setPayAmt]           = useState("");
   const [payNote, setPayNote]         = useState("");
   const [search, setSearch]           = useState("");
+
+  // Manual debit modal
+  const [showDebitModal, setShowDebitModal] = useState(false);
+  const [debitAmt, setDebitAmt]             = useState("");
+  const [debitNote, setDebitNote]           = useState("");
+
+  // PIN-authenticated single-entry delete state
+  const [entryToDelete, setEntryToDelete]         = useState(null);
+  const [deleteEntryPin, setDeleteEntryPin]       = useState("");
+  const [deleteEntryPinError, setDeleteEntryPinError] = useState("");
 
   // PIN-authenticated reset state
   const [showResetModal, setShowResetModal] = useState(false);
@@ -5512,6 +5528,19 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
     if (!amt || amt <= 0) return;
     onAddCredit(selected, { type: "credit", amount: amt, note: payNote || "Payment received" });
     setPayAmt(""); setPayNote(""); setShowPayModal(false);
+  };
+
+  const handleDebit = () => {
+    const amt = parseFloat(debitAmt);
+    if (!amt || amt <= 0) return;
+    onAddCredit(selected, { type: "debit", amount: amt, note: debitNote || "Manual debit" });
+    setDebitAmt(""); setDebitNote(""); setShowDebitModal(false);
+  };
+
+  const handleDeleteEntryConfirm = () => {
+    if (deleteEntryPin !== RESET_PIN) { setDeleteEntryPinError("Wrong PIN. Try again."); return; }
+    onDeleteEntry(selected, entryToDelete.id);
+    setEntryToDelete(null); setDeleteEntryPin(""); setDeleteEntryPinError("");
   };
 
   const handleResetConfirm = () => {
@@ -5630,9 +5659,14 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
                 ₹{Math.abs(balance).toFixed(0)}
               </div>
             </div>
-            <button className="ht-btn btn-green" onClick={() => setShowPayModal(true)}>
-              + Payment Received
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="ht-btn btn-green" onClick={() => setShowPayModal(true)}>
+                + Payment Received
+              </button>
+              <button className="ht-btn btn-danger" onClick={() => setShowDebitModal(true)}>
+                + Manual Debit
+              </button>
+            </div>
           </div>
         </div>
 
@@ -5646,18 +5680,19 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
           ) : (
             <div className="ht-card" style={{ overflow: "hidden" }}>
               {/* Column headers */}
-              <div style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px", padding: "10px 14px", background: C.cream, borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, color: C.inkMid, textTransform: "uppercase", letterSpacing: "0.3px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px 26px", padding: "10px 14px", background: C.cream, borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, color: C.inkMid, textTransform: "uppercase", letterSpacing: "0.3px" }}>
                 <span>Date</span><span>Details</span>
                 <span style={{ textAlign: "right", color: C.red }}>Debit</span>
                 <span style={{ textAlign: "right", color: C.green }}>Credit</span>
                 <span style={{ textAlign: "right" }}>Balance</span>
+                <span></span>
               </div>
 
               {entries.map((e, i) => {
                 running += e.type === "debit" ? e.amount : -e.amount;
                 const isDebit = e.type === "debit";
                 return (
-                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px", padding: "11px 14px", borderBottom: i < entries.length - 1 ? `1px solid ${C.border}` : "none", background: isDebit ? "#FFFAF8" : "#F8FFFA" }}>
+                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px 26px", padding: "11px 14px", borderBottom: i < entries.length - 1 ? `1px solid ${C.border}` : "none", background: isDebit ? "#FFFAF8" : "#F8FFFA" }}>
                     <div style={{ fontSize: 11, color: C.inkLight, paddingTop: 2 }}>
                       {new Date(e.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                     </div>
@@ -5670,13 +5705,22 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
                     <div style={{ textAlign: "right", fontSize: 13, fontWeight: 800, color: running > 0 ? C.red : running < 0 ? C.green : C.inkMid }}>
                       ₹{Math.abs(running)}
                     </div>
+                    <div style={{ textAlign: "center", paddingTop: 2 }}>
+                      <button
+                        onClick={() => { setDeleteEntryPin(""); setDeleteEntryPinError(""); setEntryToDelete(e); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.inkLight, padding: 0 }}
+                        title="Delete entry"
+                      >
+                        🗑
+                      </button>
+                    </div>
                   </div>
                 );
               })}
 
               {/* Balance footer */}
-              <div style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px", padding: "12px 14px", background: C.ink }}>
-                <div style={{ gridColumn: "1 / 5", fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.7)" }}>Net Balance</div>
+              <div style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px 26px", padding: "12px 14px", background: C.ink }}>
+                <div style={{ gridColumn: "1 / 6", fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.7)" }}>Net Balance</div>
                 <div style={{ textAlign: "right", fontSize: 15, fontWeight: 900, color: balance > 0 ? "#FF8A80" : balance < 0 ? "#B9F6CA" : "rgba(255,255,255,0.5)" }}>
                   {balance > 0 ? `₹${balance} ↑` : balance < 0 ? `₹${Math.abs(balance)} ↓` : "Settled"}
                 </div>
@@ -5707,6 +5751,65 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
               </div>
               <button className="ht-btn btn-green btn-full btn-lg" style={{ marginTop: 20 }} onClick={handlePayment}>✓ Record Payment</button>
               <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={() => setShowPayModal(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Manual debit modal */}
+        {showDebitModal && (
+          <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowDebitModal(false); }}>
+            <div className="modal-sheet">
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+              <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Manual Debit</h3>
+              <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>
+                For <strong>{selectedCustomer.name}</strong> · adds an amount owed (e.g. a correction not tied to an order)
+              </p>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 5 }}>Amount (₹)</label>
+                  <input className="ht-input" type="number" placeholder="Enter amount" value={debitAmt} onChange={e => setDebitAmt(e.target.value)} autoFocus />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 5 }}>Note</label>
+                  <input className="ht-input" placeholder="e.g. Missed charge, correction" value={debitNote} onChange={e => setDebitNote(e.target.value)} />
+                </div>
+              </div>
+              <button className="ht-btn btn-danger btn-full btn-lg" style={{ marginTop: 20 }} onClick={handleDebit}>✓ Add Debit</button>
+              <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={() => setShowDebitModal(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* PIN-authenticated single-entry delete modal */}
+        {entryToDelete && (
+          <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) { setEntryToDelete(null); setDeleteEntryPin(""); setDeleteEntryPinError(""); } }}>
+            <div className="modal-sheet">
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🔐</div>
+                <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Delete Entry</h3>
+                <p style={{ fontSize: 13, color: C.inkMid }}>
+                  Permanently delete "{entryToDelete.note}" (₹{entryToDelete.amount}) from {selectedCustomer.name}'s ledger. Enter your PIN to confirm.
+                </p>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 5 }}>Enter PIN</label>
+                <input
+                  className="ht-input"
+                  type="password"
+                  maxLength={6}
+                  placeholder="Enter your PIN"
+                  value={deleteEntryPin}
+                  onChange={e => { setDeleteEntryPin(e.target.value); setDeleteEntryPinError(""); }}
+                  style={{ textAlign: "center", letterSpacing: 8, fontSize: 20 }}
+                  autoFocus
+                />
+                {deleteEntryPinError && <p style={{ fontSize: 12, color: C.red, marginTop: 6, textAlign: "center" }}>⚠️ {deleteEntryPinError}</p>}
+              </div>
+              <button className="ht-btn btn-danger btn-full btn-lg" onClick={handleDeleteEntryConfirm} style={{ marginBottom: 8 }}>
+                Delete Entry
+              </button>
+              <button className="ht-btn btn-ghost btn-full btn-sm" onClick={() => { setEntryToDelete(null); setDeleteEntryPin(""); setDeleteEntryPinError(""); }}>Cancel</button>
             </div>
           </div>
         )}
@@ -5956,7 +6059,7 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
 // ─────────────────────────────────────────────
 // BACKEND SHELL
 // ─────────────────────────────────────────────
-function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
   const pendingCount = todayOrders.filter(o => o.status === "pending").length;
   const creditAlert = credit.filter(c => c.entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0) > 0).length;
@@ -6073,7 +6176,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
-        {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
+        {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
         {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
@@ -6874,6 +6977,11 @@ export default function App() {
     await saveCreditEntriesToTable(phone, [newEntry]);
   }, []);
 
+  const handleDeleteCreditEntry = useCallback(async (phone, entryId) => {
+    setCredit(prev => prev.map(c => c.phone === phone ? { ...c, entries: c.entries.filter(e => e.id !== entryId) } : c));
+    await deleteCreditEntryRow(entryId);
+  }, []);
+
   const handleResetCreditCustomer = useCallback(async (phone) => {
     // deleteCreditForPhone removes every row for this phone, and
     // loadCreditFromTable only rebuilds phones that still have rows — so the
@@ -7056,6 +7164,7 @@ export default function App() {
           onRejectOrder={handleRejectOrder}
           onLogout={handleOwnerLogout}
           onAddCredit={handleAddCredit}
+          onDeleteCreditEntry={handleDeleteCreditEntry}
           onResetCreditCustomer={handleResetCreditCustomer}
           onDeleteCreditCustomer={handleDeleteCreditCustomer}
           onReconcileCredit={handleReconcileCredit}
