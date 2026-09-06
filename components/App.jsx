@@ -810,6 +810,8 @@ function exportDailyReport(allOrders, dateStr) {
     "Order ID": o.id.slice(-6).toUpperCase(), "Customer": o.customerName, "Tower": o.tower,
     "Flat": o.flat, "Phone": o.phone, "Items": o.items.map(i => `${i.name}(x${i.qty})`).join(" | "),
     "Total (₹)": o.total, "Status": o.status, "Time": fmtTime(o.createdAt), "Date": o.date,
+    "Promo/Referral Code": o.promoCode || o.referralCode || "",
+    "Discount (₹)": o.discount || 0,
   })), `HT_Daily_${day}.csv`);
 }
 function exportOrdersRange(allOrders, fromStr, toStr) {
@@ -821,6 +823,8 @@ function exportOrdersRange(allOrders, fromStr, toStr) {
     "Order ID": o.id.slice(-6).toUpperCase(), "Customer": o.customerName, "Tower": o.tower,
     "Flat": o.flat, "Phone": o.phone, "Items": o.items.map(i => `${i.name}(x${i.qty})`).join(" | "),
     "Total (₹)": o.total, "Status": o.status, "Time": fmtTime(o.createdAt), "Date": o.date,
+    "Promo/Referral Code": o.promoCode || o.referralCode || "",
+    "Discount (₹)": o.discount || 0,
   })), `HT_Orders_${fromStr}_to_${toStr}.csv`);
 }
 function exportCustomerMaster(customers) {
@@ -5505,6 +5509,14 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
   const [reconcilePinError, setReconcilePinError]   = useState("");
   const [reconciling, setReconciling]               = useState(false);
 
+  // Order-detail viewer for a tapped debit entry (item breakdown + promo/discount)
+  const [entryToView, setEntryToView] = useState(null);
+  const allOrdersByI = (() => {
+    const map = new Map();
+    [...(ordersHistory || []), ...(todayOrders || [])].forEach(o => { if (o && o.id) map.set(o.id, o); });
+    return map;
+  })();
+
   const getBalance = (entries) =>
     entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0);
 
@@ -5691,13 +5703,19 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
               {entries.map((e, i) => {
                 running += e.type === "debit" ? e.amount : -e.amount;
                 const isDebit = e.type === "debit";
+                const linkedOrder = e.orderId ? allOrdersByI.get(e.orderId) : null;
+                const tappable = isDebit && !!linkedOrder;
                 return (
-                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px 26px", padding: "11px 14px", borderBottom: i < entries.length - 1 ? `1px solid ${C.border}` : "none", background: isDebit ? "#FFFAF8" : "#F8FFFA" }}>
+                  <div
+                    key={e.id}
+                    onClick={tappable ? () => setEntryToView({ entry: e, order: linkedOrder }) : undefined}
+                    style={{ display: "grid", gridTemplateColumns: "72px 1fr 72px 72px 72px 26px", padding: "11px 14px", borderBottom: i < entries.length - 1 ? `1px solid ${C.border}` : "none", background: isDebit ? "#FFFAF8" : "#F8FFFA", cursor: tappable ? "pointer" : "default" }}
+                  >
                     <div style={{ fontSize: 11, color: C.inkLight, paddingTop: 2 }}>
                       {new Date(e.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                     </div>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{e.note}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{e.note}{tappable && <span style={{ color: C.inkLight, fontWeight: 500 }}> · tap for details</span>}</div>
                       {e.orderDetails && <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{e.orderDetails}</div>}
                     </div>
                     <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: C.red }}>{isDebit ? `₹${e.amount}` : ""}</div>
@@ -5707,7 +5725,7 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
                     </div>
                     <div style={{ textAlign: "center", paddingTop: 2 }}>
                       <button
-                        onClick={() => { setDeleteEntryPin(""); setDeleteEntryPinError(""); setEntryToDelete(e); }}
+                        onClick={(ev) => { ev.stopPropagation(); setDeleteEntryPin(""); setDeleteEntryPinError(""); setEntryToDelete(e); }}
                         style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.inkLight, padding: 0 }}
                         title="Delete entry"
                       >
@@ -5728,6 +5746,47 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
             </div>
           )}
         </div>
+
+        {/* Debit entry order-detail modal */}
+        {entryToView && (() => {
+          const o = entryToView.order;
+          const discount = o.discount || 0;
+          const originalTotal = o.originalTotal ?? (o.total + discount);
+          const code = o.promoCode || o.referralCode || null;
+          return (
+            <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setEntryToView(null); }}>
+              <div className="modal-sheet">
+                <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+                <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Order Detail</h3>
+                <p style={{ fontSize: 12, color: C.inkLight, marginBottom: 16 }}>
+                  #{o.id.slice(-6).toUpperCase()} · {fmtDate(o.date)} {fmtTime(o.createdAt)}
+                </p>
+                <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+                  {(o.items || []).map((it, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.ink }}>
+                      <span>{it.name} × {it.qty}</span>
+                      <span>₹{(it.price ?? 0) * it.qty}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, display: "grid", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.inkMid }}>
+                    <span>Subtotal</span><span>₹{originalTotal}</span>
+                  </div>
+                  {discount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.green }}>
+                      <span>Discount{code ? ` (${code})` : ""}</span><span>−₹{discount}</span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 800, color: C.ink }}>
+                    <span>Total Charged</span><span>₹{o.total}</span>
+                  </div>
+                </div>
+                <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 20 }} onClick={() => setEntryToView(null)}>Close</button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Payment received modal */}
         {showPayModal && (
