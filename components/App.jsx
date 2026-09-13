@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
-const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
+const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
+const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────
@@ -254,99 +254,6 @@ async function save(key, val) {
 // isn't left thinking a change went through when it didn't. Auto-hides
 // after a few seconds; stacks a count if multiple failures happen close
 // together.
-// ─────────────────────────────────────────────
-// PWA INSTALL BUTTON
-// Chrome only auto-shows its own "Add to Home Screen" prompt after an
-// engagement heuristic is met, which can take multiple visits. Capturing
-// `beforeinstallprompt` ourselves lets us offer an explicit, always-visible
-// "Install App" button instead of waiting on that. Hides itself once the
-// app is installed or already running standalone.
-//
-// The listener below is attached at module load time (not inside a React
-// effect) because `beforeinstallprompt` can fire very early - before React
-// has hydrated - and it only fires once per page load. Attaching it late
-// risks silently missing that single event, which was the likely cause of
-// the button never appearing on some visits.
-// ─────────────────────────────────────────────
-let capturedInstallPrompt = null;
-let installPromptListeners = [];
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    capturedInstallPrompt = e;
-    installPromptListeners.forEach((fn) => fn(e));
-  });
-}
-
-function InstallAppButton() {
-  const [deferredPrompt, setDeferredPrompt] = useState(capturedInstallPrompt);
-  const [visible, setVisible] = useState(!!capturedInstallPrompt);
-
-  useEffect(() => {
-    const isStandalone =
-      window.matchMedia?.("(display-mode: standalone)")?.matches ||
-      window.navigator.standalone === true; // iOS Safari
-    if (isStandalone) return;
-
-    const onCaptured = (e) => {
-      setDeferredPrompt(e);
-      setVisible(true);
-    };
-    installPromptListeners.push(onCaptured);
-
-    const onAppInstalled = () => {
-      setVisible(false);
-      setDeferredPrompt(null);
-      capturedInstallPrompt = null;
-    };
-    window.addEventListener("appinstalled", onAppInstalled);
-
-    return () => {
-      installPromptListeners = installPromptListeners.filter((fn) => fn !== onCaptured);
-      window.removeEventListener("appinstalled", onAppInstalled);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    // Whether accepted or dismissed, this specific prompt can't be reused.
-    capturedInstallPrompt = null;
-    setDeferredPrompt(null);
-    setVisible(false);
-  };
-
-  if (!visible) return null;
-
-  return (
-    <button
-      onClick={handleInstall}
-      style={{
-        position: "fixed",
-        bottom: 18,
-        right: 18,
-        zIndex: 9999,
-        background: "#E0731A",
-        color: "#fff",
-        border: "none",
-        borderRadius: 999,
-        padding: "10px 18px",
-        fontFamily: "Nunito, sans-serif",
-        fontWeight: 700,
-        fontSize: 14,
-        boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-      }}
-    >
-      ⬇️ Install App
-    </button>
-  );
-}
-
 function SaveErrorBanner() {
   const [visible, setVisible] = useState(false);
   const hideTimer = useRef(null);
@@ -6532,17 +6439,6 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // Register the PWA service worker once on mount. It does not cache any
-  // data/API responses (Supabase reads must always hit the network) - it
-  // only exists so the app is installable as a home-screen app.
-  useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // Installability is a nice-to-have; don't surface errors to users.
-      });
-    }
-  }, []);
-
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
   const [contactInfo, setContactInfo] = useState({ phone: "", whatsapp: "", email: "" });
@@ -7272,7 +7168,6 @@ export default function App() {
     <div>
       <GlobalStyle />
       <SaveErrorBanner />
-      <InstallAppButton />
 
       {route === "customer" && (
         <CustomerApp
