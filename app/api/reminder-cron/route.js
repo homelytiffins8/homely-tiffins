@@ -22,10 +22,6 @@ const STAGES = [
   { key: 4, afterMs: 15 * 60 * 1000, say: "Final reminder. An order has been pending for fifteen minutes with no response." },
 ];
 
-function todayStr() {
-  return new Date().toISOString().split("T")[0];
-}
-
 async function triggerTwilioCall(stage) {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
@@ -69,13 +65,16 @@ export async function GET(request) {
       return Response.json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY env var" }, { status: 500 });
     }
 
-    const today = todayStr();
-
+    // No date filter here on purpose: the `date` column is set using local
+    // (IST) calendar date while this server runs on UTC, which caused a
+    // timezone mismatch that silently hid orders placed late at night.
+    // Per-order reminderStages tracking already prevents old orders from
+    // re-triggering calls they've already had, so filtering by date is
+    // unnecessary.
     const { data: orders, error } = await supabase
       .from("orders")
       .select("id, created_at, extra")
-      .eq("status", "pending")
-      .eq("date", today);
+      .eq("status", "pending");
 
     if (error) {
       return Response.json({ ok: false, error: error.message }, { status: 500 });
