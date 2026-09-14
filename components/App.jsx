@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
-const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
+const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
+const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────
@@ -254,81 +254,6 @@ async function save(key, val) {
 // isn't left thinking a change went through when it didn't. Auto-hides
 // after a few seconds; stacks a count if multiple failures happen close
 // together.
-// ─────────────────────────────────────────────
-// PWA INSTALL BUTTON
-// Chrome only auto-shows its own "Add to Home Screen" prompt after an
-// engagement heuristic is met, which can take multiple visits. Capturing
-// `beforeinstallprompt` ourselves lets us offer an explicit, always-visible
-// "Install App" button instead of waiting on that. Hides itself once the
-// app is installed or already running standalone.
-// ─────────────────────────────────────────────
-function InstallAppButton() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const isStandalone =
-      window.matchMedia?.("(display-mode: standalone)")?.matches ||
-      window.navigator.standalone === true; // iOS Safari
-    if (isStandalone) return;
-
-    const onBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setVisible(true);
-    };
-    const onAppInstalled = () => {
-      setVisible(false);
-      setDeferredPrompt(null);
-    };
-
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    window.addEventListener("appinstalled", onAppInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", onAppInstalled);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    // Whether accepted or dismissed, this specific prompt can't be reused.
-    setDeferredPrompt(null);
-    setVisible(false);
-  };
-
-  if (!visible) return null;
-
-  return (
-    <button
-      onClick={handleInstall}
-      style={{
-        position: "fixed",
-        bottom: 18,
-        right: 18,
-        zIndex: 9999,
-        background: "#E0731A",
-        color: "#fff",
-        border: "none",
-        borderRadius: 999,
-        padding: "10px 18px",
-        fontFamily: "Nunito, sans-serif",
-        fontWeight: 700,
-        fontSize: 14,
-        boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-      }}
-    >
-      ⬇️ Install App
-    </button>
-  );
-}
-
 function SaveErrorBanner() {
   const [visible, setVisible] = useState(false);
   const hideTimer = useRef(null);
@@ -905,6 +830,18 @@ function exportOrdersRange(allOrders, fromStr, toStr) {
 function exportCustomerMaster(customers) {
   if (!customers.length) { alert("No customer data yet."); return; }
   exportCSV(customers.map(c => ({ "Name": c.name, "Phone": c.phone, "Tower": c.tower, "Flat": c.flat, "Orders": c.totalOrders, "Spent (₹)": c.totalSpent, "First Order": c.firstOrderDate || "", "Last Order": c.lastOrderDate || "" })), `HT_Customers_${todayStr()}.csv`);
+}
+function exportRatingsLastMonth(allOrders) {
+  const since = new Date(); since.setDate(since.getDate() - 30);
+  const rows = allOrders
+    .filter(o => o.rating && typeof o.rating.taste === "number" && typeof o.rating.delivery === "number" && new Date(o.rating.ratedAt) >= since)
+    .sort((a, b) => new Date(b.rating.ratedAt) - new Date(a.rating.ratedAt));
+  if (!rows.length) { alert("No ratings in the last 1 month."); return; }
+  exportCSV(rows.map(o => ({
+    "Order ID": o.id.slice(-6).toUpperCase(), "Customer": o.customerName, "Tower": o.tower, "Flat": o.flat,
+    "Phone": o.phone, "Taste": o.rating.taste, "Delivery": o.rating.delivery,
+    "Feedback": o.rating.feedback || "", "Rated At": fmtDate(o.rating.ratedAt) + " " + fmtTime(o.rating.ratedAt),
+  })), `HT_Ratings_Last1Month_${todayStr()}.csv`);
 }
 
 // ─────────────────────────────────────────────
@@ -5043,12 +4980,21 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
 
       {/* Customer Ratings section */}
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>⭐ Customer Ratings</h3>
           <span style={{ fontSize: 11, color: C.inkLight }}>
             {ratingsCount} of {deliveredCount} delivered · {responseRate}% response
           </span>
         </div>
+        {ratingsCount > 0 && (
+          <button
+            onClick={() => exportRatingsLastMonth(allOrders)}
+            className="ht-btn"
+            style={{ width: "100%", marginBottom: 16, background: C.white, color: C.ink, border: `1.5px solid ${C.border}`, fontSize: 12, padding: "10px 12px" }}
+          >
+            ⬇ Download Last 1 Month Ratings (CSV)
+          </button>
+        )}
 
         {ratingsCount === 0 ? (
           <div style={{ textAlign: "center", padding: "20px 0", color: C.inkMid }}>
@@ -6514,17 +6460,6 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // Register the PWA service worker once on mount. It does not cache any
-  // data/API responses (Supabase reads must always hit the network) - it
-  // only exists so the app is installable as a home-screen app.
-  useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // Installability is a nice-to-have; don't surface errors to users.
-      });
-    }
-  }, []);
-
   const [menu, setMenu] = useState(null);
   const [planConfig, setPlanConfig] = useState(null); // daily thali plan config (Gold/Standard/Mini)
   const [contactInfo, setContactInfo] = useState({ phone: "", whatsapp: "", email: "" });
@@ -7254,7 +7189,6 @@ export default function App() {
     <div>
       <GlobalStyle />
       <SaveErrorBanner />
-      <InstallAppButton />
 
       {route === "customer" && (
         <CustomerApp
