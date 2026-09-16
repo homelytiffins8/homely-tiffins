@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
-const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
+const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
+const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────
