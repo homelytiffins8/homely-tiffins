@@ -17,6 +17,12 @@ export default function RootLayout({ children }) {
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#E0731A" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        {/* iOS ignores manifest.json's "standalone" display mode unless these
+            are also set explicitly — without them some iOS versions open the
+            home-screen icon as a regular Safari tab instead of full-screen. */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Homely Tiffins" />
       </head>
       <body style={{ margin: 0 }}>{children}</body>
     </html>
