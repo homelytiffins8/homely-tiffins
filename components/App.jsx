@@ -9,6 +9,69 @@ const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────
+// WEB PUSH — public key only (private key lives server-side as an env var,
+// used by app/api/send-push/route.js). Safe to ship in the client bundle.
+// ─────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = "BCod_UILiXM3ELK2DFviuCflownK-Uwssaodv6YULrQo4lF6UP3tn0WSfnOtlY_vGO_MqFZKWeIAX3XgDpgamKs";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+// Requests notification permission, subscribes via the SW's push manager,
+// and upserts the subscription against this phone number. Safe to call
+// repeatedly (e.g. every app open) — upsert just refreshes the row.
+async function subscribeToPush(phone) {
+  if (!phone) return { ok: false, reason: "no-phone" };
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { ok: false, reason: "unsupported" };
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return { ok: false, reason: "denied" };
+
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = subscription.toJSON();
+    const { error } = await supabase.from("push_subscriptions").upsert({
+      endpoint: json.endpoint,
+      keys: json.keys,
+      phone,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "endpoint" });
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
+
+// Fire-and-forget push for a single order-status change. Called from the
+// owner's browser session (which is what triggers status changes), hitting
+// our own API route same-origin — no secret needed since this targets one
+// specific phone rather than a broadcast.
+function sendOrderStatusPush(phone, title, body) {
+  if (!phone) return;
+  fetch("/api/send-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, title, body }),
+  }).catch(() => {
+    // Non-fatal — the order status itself already saved; a missed push
+    // notification shouldn't surface as an error to the owner.
+  });
+}
+
+// ─────────────────────────────────────────────
 // STORAGE HELPERS (Supabase-backed, cross-device)
 // ─────────────────────────────────────────────
 const KEYS = {
@@ -2042,6 +2105,77 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // ── PWA "Install App" button ──
+  // Chrome's own install prompt/mini-infobar is unreliable (one-time dismissal
+  // caching, engagement heuristics, and it never fires on iOS Safari at all),
+  // so we capture the `beforeinstallprompt` event ourselves and drive our own
+  // button off it. Hidden entirely once the app is already installed/running
+  // standalone, or on browsers that never fire the event (falls back to null
+  // rather than showing a button that can't do anything).
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(
+    typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true)
+  );
+  useEffect(() => {
+    const onBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    const onAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setIsStandalone(true);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+  const handleInstallClick = async () => {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    // The captured event can only be used once — clear it either way.
+    setInstallPromptEvent(null);
+  };
+
+  // ── iOS instructional banner ──
+  // Safari never fires beforeinstallprompt, so there's nothing to hook a
+  // button into — the only option is telling the user how to do it manually.
+  // Dismissal is remembered (localStorage) so it doesn't nag on every visit.
+  const [isIOSSafari] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const ua = window.navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && "ontouchend" in document);
+    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    return isIOS && isSafari;
+  });
+  const [iosBannerDismissed, setIosBannerDismissed] = useState(
+    typeof window !== "undefined" && localStorage.getItem("ht_ios_install_dismissed") === "1"
+  );
+  const dismissIosBanner = () => {
+    localStorage.setItem("ht_ios_install_dismissed", "1");
+    setIosBannerDismissed(true);
+  };
+
+  // ── Notification opt-in ──
+  // Only offer this to returning customers (we need a phone number to target
+  // pushes at, and the only place we reliably have one client-side is the
+  // last phone used to place an order). Hidden once granted, or if the
+  // browser has no push support (or the user already said no).
+  const [knownPhone] = useState(
+    typeof window !== "undefined" ? window.localStorage.getItem("htLastCustomerPhone") : ""
+  );
+  const [notifStatus, setNotifStatus] = useState(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+  const handleEnableNotifications = async () => {
+    const result = await subscribeToPush(knownPhone);
+    setNotifStatus(result.ok ? "granted" : (typeof Notification !== "undefined" ? Notification.permission : "denied"));
+  };
   const [cart, setCart] = useState({});
   // Metadata for configured Homely Gold / Mini cart lines (id -> { name, price }).
   // Regular menu items and the fixed Standard / Extras lines don't need this —
@@ -2701,6 +2835,58 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{ marginTop: 2 }}><HeartIcon s={11} c={HC.orange} /></div>
           </div>
         </div>
+
+        {!isStandalone && installPromptEvent && (
+          <button
+            onClick={handleInstallClick}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 12, padding: "9px 16px",
+              background: HC.orange, color: "#fff", border: "none",
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13.5, cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(224,115,26,0.35)",
+            }}
+          >
+            ⬇ Install App
+          </button>
+        )}
+
+        {!isStandalone && isIOSSafari && !iosBannerDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b>
+            </div>
+            <button
+              onClick={dismissIosBanner}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
+        {knownPhone && notifStatus === "default" && (
+          <button
+            onClick={handleEnableNotifications}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 8, padding: "8px 16px",
+              background: "#fff", color: HC.orange, border: `1.5px solid ${HC.orange}`,
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13, cursor: "pointer",
+            }}
+          >
+            🔔 Get order updates
+          </button>
+        )}
       </div>
 
       {/* ═══════ SECTION 2 — HERO ═══════ */}
@@ -6139,6 +6325,93 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
 // ─────────────────────────────────────────────
 // BACKEND SHELL
 // ─────────────────────────────────────────────
+// ── Owner broadcast notifications ──
+// Sends a custom push message to either every customer with an active
+// subscription, or just today's customers. Requires the owner's real
+// Supabase Auth session (checked server-side in app/api/send-push).
+function NotifyCenter() {
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState("today");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleSend = async () => {
+    if (!message.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/send-push", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
+        body: JSON.stringify({
+          target,
+          title: "Homely Tiffins",
+          body: message.trim(),
+        }),
+      });
+      const data = await res.json();
+      setResult(data.ok ? `Sent to ${data.sent} device(s)${data.failed ? `, ${data.failed} failed` : ""}.` : `Failed: ${data.error}`);
+      if (data.ok) setMessage("");
+    } catch (err) {
+      setResult(`Failed: ${err.message}`);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Send a Notification</h2>
+      <p style={{ fontSize: 13, color: "#8A7A65", marginBottom: 16 }}>
+        Push notification to customers who've enabled updates and installed the app.
+      </p>
+
+      <label style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 6 }}>Send to</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button
+          onClick={() => setTarget("today")}
+          style={{ flex: 1, padding: "10px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", border: target === "today" ? "2px solid #E0731A" : "1px solid #ddd", background: target === "today" ? "#FFF3E8" : "#fff" }}
+        >
+          Today's customers
+        </button>
+        <button
+          onClick={() => setTarget("all")}
+          style={{ flex: 1, padding: "10px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", border: target === "all" ? "2px solid #E0731A" : "1px solid #ddd", background: target === "all" ? "#FFF3E8" : "#fff" }}
+        >
+          All customers
+        </button>
+      </div>
+
+      <label style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 6 }}>Message</label>
+      <textarea
+        className="ht-input"
+        rows={3}
+        maxLength={180}
+        placeholder="e.g. Kitchen closed today due to a holiday."
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        style={{ width: "100%", resize: "vertical", marginBottom: 12 }}
+      />
+
+      <button
+        className="ht-btn btn-full"
+        disabled={sending || !message.trim()}
+        onClick={handleSend}
+        style={{ background: "#E0731A", color: "#fff", opacity: sending || !message.trim() ? 0.6 : 1 }}
+      >
+        {sending ? "Sending…" : "🔔 Send Notification"}
+      </button>
+
+      {result && (
+        <p style={{ fontSize: 13, marginTop: 10, color: result.startsWith("Failed") ? "#C0392B" : "#2E7D32" }}>{result}</p>
+      )}
+    </div>
+  );
+}
+
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
   const pendingCount = todayOrders.filter(o => o.status === "pending").length;
@@ -6153,6 +6426,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
     { id: "promo",    label: "🎟️ Promo" },
+    { id: "notify",   label: "🔔 Notify" },
   ];
   return (
     <div style={{ minHeight: "100vh", background: C.cream }}>
@@ -6260,6 +6534,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
+        {tab === "notify"    && <NotifyCenter />}
       </div>
     </div>
   );
@@ -6458,6 +6733,18 @@ export default function App() {
       setOwnerAuthed(!!session);
     });
     return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  // Register the PWA service worker. This was missing entirely, which is the
+  // most likely reason the "Add to Home Screen" prompt showed up inconsistently:
+  // Chrome requires an active service worker registration (on top of the
+  // manifest) before it will consider the app installable at all.
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Non-fatal: app still works without it, just won't be installable.
+      });
+    }
   }, []);
 
   const [menu, setMenu] = useState(null);
@@ -6882,6 +7169,16 @@ export default function App() {
     setTodayOrders(updated);
     await writeOrders(updated.filter(o => o.id === orderId));
 
+    const STATUS_PUSH_COPY = {
+      preparing: "Your order is being prepared 🍳",
+      ready: "Your order is ready and will be dispatched shortly 📦",
+      dispatched: "Your order is out for delivery 🛵",
+      delivered: "Delivered! Enjoy your meal 🍱",
+    };
+    if (STATUS_PUSH_COPY[nextStatus]) {
+      sendOrderStatusPush(order.phone, "Homely Tiffins", STATUS_PUSH_COPY[nextStatus]);
+    }
+
     // When delivered → auto-debit credit ledger.
     // Idempotent: each order can only be credited ONCE, no matter how many
     // times handleAdvanceOrder is called with nextStatus="delivered".
@@ -6989,6 +7286,7 @@ export default function App() {
     const updated = base.map(o => o.id === orderId ? { ...o, status: "rejected" } : o);
     setTodayOrders(updated);
     await writeOrders(updated.filter(o => o.id === orderId));
+    sendOrderStatusPush(order.phone, "Homely Tiffins", "Sorry — your order couldn't be accepted today. Please call us for details.");
   }, [todayOrders]);
 
   // ── Submit customer rating ──
