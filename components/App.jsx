@@ -2213,6 +2213,24 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       setNotifError(result.reason || "Unknown error");
     }
   };
+  // ── Self-heal a "granted but never actually subscribed" state ──
+  // Notification.permission is a permanent browser-level flag: once granted,
+  // it stays granted even if the subscribe+save step that should follow it
+  // failed (or, before this fix, was skipped entirely because notifStatus
+  // read directly from this flag and showed "enabled" without ever calling
+  // subscribeToPush again). That made the UI lie — "granted" looked
+  // identical whether or not a working subscription actually existed. On
+  // every load where permission is already granted, silently re-run the
+  // subscribe+save flow: requestPermission() resolves instantly with no
+  // dialog when already granted, and the upsert is idempotent (keyed by
+  // endpoint), so this is a safe, invisible repair rather than a new ask.
+  useEffect(() => {
+    if (knownPhone && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      subscribeToPush(knownPhone).then(result => {
+        if (!result.ok) setNotifError(result.reason || "Unknown error");
+      });
+    }
+  }, [knownPhone]);
   const [cart, setCart] = useState({});
   // Metadata for configured Homely Gold / Mini cart lines (id -> { name, price }).
   // Regular menu items and the fixed Standard / Extras lines don't need this —
