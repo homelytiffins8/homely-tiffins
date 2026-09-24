@@ -90,5 +90,10 @@ export async function POST(request) {
     await supabase.from("push_subscriptions").delete().in("endpoint", staleEndpoints);
   }
 
+  // Logged so a "no notification arrived" report can be checked against
+  // Vercel's runtime logs directly — a 200 response alone doesn't say
+  // whether any subscription actually matched or any push actually sent.
+  console.log(`[send-push] phone=${phone || "-"} target=${target || "-"} matched=${(subs || []).length} sent=${sent} failed=${failed} staleRemoved=${staleEndpoints.length}`);
+
   return Response.json({ ok: true, sent, failed });
 }
