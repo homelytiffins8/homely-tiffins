@@ -2161,6 +2161,29 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     setIosBannerDismissed(true);
   };
 
+  // ── Android/desktop Chrome manual-install fallback ──
+  // beforeinstallprompt is gated by Chrome's own engagement heuristics (time
+  // on site, interaction count, prior dismissals) and can simply never fire
+  // in a given session even on a fully-installable site — that's expected
+  // Chrome behavior, not a bug we can code around. After a grace period with
+  // no prompt event, show manual instructions instead of a dead-end. Only
+  // for non-iOS (iOS already gets its own banner above) and non-standalone.
+  const [showManualInstallHint, setShowManualInstallHint] = useState(false);
+  const [manualHintDismissed, setManualHintDismissed] = useState(
+    typeof window !== "undefined" && localStorage.getItem("ht_manual_install_dismissed") === "1"
+  );
+  useEffect(() => {
+    if (isIOSSafari || isStandalone) return;
+    const t = setTimeout(() => {
+      if (!installPromptEvent) setShowManualInstallHint(true);
+    }, 10000); // give the real prompt 10s to show up first
+    return () => clearTimeout(t);
+  }, [isIOSSafari, isStandalone, installPromptEvent]);
+  const dismissManualInstallHint = () => {
+    localStorage.setItem("ht_manual_install_dismissed", "1");
+    setManualHintDismissed(true);
+  };
+
   // ── Notification opt-in ──
   // Only offer this to returning customers (we need a phone number to target
   // pushes at, and the only place we reliably have one client-side is the
@@ -2172,9 +2195,23 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [notifStatus, setNotifStatus] = useState(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
   );
+  // Surfaced on screen (not just swallowed) — subscribeToPush() can fail for
+  // several real reasons (push service unreachable, invalid key, browser
+  // quirk) and previously we discarded the reason, making it impossible to
+  // tell what actually went wrong from a phone with no dev console open.
+  const [notifError, setNotifError] = useState(null);
+  const [notifBusy, setNotifBusy] = useState(false);
   const handleEnableNotifications = async () => {
+    setNotifBusy(true);
+    setNotifError(null);
     const result = await subscribeToPush(knownPhone);
-    setNotifStatus(result.ok ? "granted" : (typeof Notification !== "undefined" ? Notification.permission : "denied"));
+    setNotifBusy(false);
+    if (result.ok) {
+      setNotifStatus("granted");
+    } else {
+      setNotifStatus(typeof Notification !== "undefined" ? Notification.permission : "denied");
+      setNotifError(result.reason || "Unknown error");
+    }
   };
   const [cart, setCart] = useState({});
   // Metadata for configured Homely Gold / Mini cart lines (id -> { name, price }).
@@ -2852,6 +2889,27 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </button>
         )}
 
+        {!isStandalone && !isIOSSafari && !installPromptEvent && showManualInstallHint && !manualHintDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap Chrome's <b>⋮ menu</b> then <b>"Add to Home screen" / "Install app"</b>
+            </div>
+            <button
+              onClick={dismissManualInstallHint}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
         {!isStandalone && isIOSSafari && !iosBannerDismissed && (
           <div style={{
             display: "flex", alignItems: "center", gap: 10,
@@ -2876,16 +2934,32 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         {knownPhone && notifStatus === "default" && (
           <button
             onClick={handleEnableNotifications}
+            disabled={notifBusy}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               marginTop: 8, padding: "8px 16px",
               background: "#fff", color: HC.orange, border: `1.5px solid ${HC.orange}`,
               borderRadius: 999, fontFamily: "'Nunito', sans-serif",
-              fontWeight: 800, fontSize: 13, cursor: "pointer",
+              fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
+              opacity: notifBusy ? 0.6 : 1,
             }}
           >
-            🔔 Get order updates
+            {notifBusy ? "Enabling…" : "🔔 Get order updates"}
           </button>
+        )}
+        {knownPhone && notifStatus === "granted" && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D32", fontWeight: 700 }}>
+            ✓ Order updates enabled
+          </div>
+        )}
+        {notifError && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", maxWidth: 320,
+            background: "#FDECEA", border: "1px solid #D32F2F", borderRadius: 10,
+            fontSize: 12, color: "#B71C1C", lineHeight: 1.4,
+          }}>
+            Couldn't enable notifications: {notifError}
+          </div>
         )}
       </div>
 
@@ -6955,6 +7029,21 @@ export default function App() {
       window.removeEventListener("focus", onWake);
     };
   }, [loaded, catchUpSync]);
+
+  // ── Polling safety net for the owner dashboard ──
+  // postgres_changes realtime can silently die on mobile without ever firing
+  // 'visibilitychange', 'online', or 'focus' — screen stays on, tab stays
+  // foregrounded, the websocket just drops and doesn't reconnect on its own.
+  // That's what causes "new order doesn't ring until I manually refresh":
+  // the wake-recovery effect above only fires on those events, so a silent
+  // drop with none of them just sits stale indefinitely. This guarantees a
+  // worst-case staleness of ~20s regardless of whether any wake event fires,
+  // so a pending order can never go unrung for more than that.
+  useEffect(() => {
+    if (!loaded || !(route === "owner" && ownerAuthed)) return;
+    const id = setInterval(() => { catchUpSync(); }, 20000);
+    return () => clearInterval(id);
+  }, [loaded, route, ownerAuthed, catchUpSync]);
 
   // ── New order alert sound ──
   useOrderAlert(todayOrders, route === "owner" && ownerAuthed);
