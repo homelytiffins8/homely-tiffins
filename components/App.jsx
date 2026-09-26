@@ -1674,6 +1674,52 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 }
 
 // ─────────────────────────────────────────────
+// COMPLETE YOUR MEAL MODAL (customer) — shown right after a thali plan
+// (Homely Gold / Standard / Mini / Gold Mini) is added to the cart, as a
+// gentle nudge toward Today's Extras. Entirely optional: the extras use
+// the same shared cart +/- steppers as the main menu list, so nothing is
+// forced, and either button below just moves on to checkout.
+// ─────────────────────────────────────────────
+function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-sheet" style={{ paddingBottom: 24 }}>
+        <div style={{ textAlign: "center", padding: "8px 0 18px" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🥗</div>
+          <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Complete Your Meal?</h3>
+          <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>
+            Added to your order! Round it off with today's extras — <span style={{ fontWeight: 700 }}>totally optional.</span>
+          </p>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          {extraItems.map(item => (
+            <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{item.name}</div>
+                <div style={{ fontSize: 13, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="ht-btn btn-secondary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, -1)}>−</button>
+                <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: "center", color: C.ink }}>{cart[item.id] || 0}</span>
+                <button className="ht-btn btn-primary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, 1)}>+</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button className="ht-btn btn-primary btn-full btn-lg" onClick={onCheckout}>
+          Continue to Checkout · ₹{cartTotal}
+        </button>
+        <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onCheckout}>
+          Skip to checkout
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // INVALID PHONE POPUP (customer)
 // ─────────────────────────────────────────────
 function InvalidPhoneModal({ onClose }) {
@@ -2295,6 +2341,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // their name/price is derived fresh from menu / planConfig every render.
   const [planCartMeta, setPlanCartMeta] = useState({});
   const [planChoiceModal, setPlanChoiceModal] = useState(null); // "gold" | "standard" | "mini" | null
+  // Shown right after a plan is added to cart, nudging toward Today's Extras.
+  const [showExtrasPrompt, setShowExtrasPrompt] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null); // { src, label } | null — full-screen image viewer
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -2456,6 +2504,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     setPlanCartMeta(prev => ({ ...prev, [id]: { name, price } }));
     setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     setPlanChoiceModal(null);
+    // Nudge toward Today's Extras right after a plan is added — optional,
+    // only shown if the owner actually has extras live today.
+    if (extraItems.length > 0) setShowExtrasPrompt(true);
   };
 
   const handleConfirmOrder = (order) => {
@@ -2840,6 +2891,17 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               planConfig={planConfig}
               onAdd={addPlanToCart}
               onClose={() => setPlanChoiceModal(null)}
+            />
+          )}
+
+          {showExtrasPrompt && (
+            <CompleteYourMealModal
+              extraItems={extraItems}
+              cart={cart}
+              setQty={setQty}
+              cartTotal={cartTotal}
+              onCheckout={() => { setShowExtrasPrompt(false); setShowModal(true); }}
+              onClose={() => setShowExtrasPrompt(false)}
             />
           )}
 
