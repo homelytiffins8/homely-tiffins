@@ -2694,6 +2694,30 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     </div>
                   </div>
                 )}
+                {planConfig.enabled?.goldMini && (
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.goldMini && (
+                        <img
+                          src={planConfig.photos.goldMini}
+                          alt="Homely Gold Mini"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold Mini</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("goldMini")}>+ Add</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {planConfig.enabled?.standard && (
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -2719,7 +2743,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   </div>
                 )}
                 {planConfig.enabled?.mini && (
-                  <div style={{ padding: "16px 20px", borderBottom: planConfig.enabled?.goldMini ? `1px solid ${C.border}` : "none" }}>
+                  <div style={{ padding: "16px 20px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
                         <img
@@ -2738,30 +2762,6 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("mini")}>+ Add</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {planConfig.enabled?.goldMini && (
-                  <div style={{ padding: "16px 20px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                      {planConfig.photos?.goldMini && (
-                        <img
-                          src={planConfig.photos.goldMini}
-                          alt="Homely Gold Mini"
-                          onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
-                        />
-                      )}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold Mini</div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
-                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("goldMini")}>+ Add</button>
                       </div>
                     </div>
                   </div>
