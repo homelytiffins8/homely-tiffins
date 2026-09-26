@@ -1711,9 +1711,6 @@ function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout
         <button className="ht-btn btn-primary btn-full btn-lg" onClick={onCheckout}>
           Continue to Checkout · ₹{cartTotal}
         </button>
-        <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onCheckout}>
-          Skip to checkout
-        </button>
       </div>
     </div>
   );
