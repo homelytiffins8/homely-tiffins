@@ -4,9 +4,72 @@ import { createClient } from "@supabase/supabase-js";
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
-const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
+const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
+const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─────────────────────────────────────────────
+// WEB PUSH — public key only (private key lives server-side as an env var,
+// used by app/api/send-push/route.js). Safe to ship in the client bundle.
+// ─────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = "BCod_UILiXM3ELK2DFviuCflownK-Uwssaodv6YULrQo4lF6UP3tn0WSfnOtlY_vGO_MqFZKWeIAX3XgDpgamKs";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+// Requests notification permission, subscribes via the SW's push manager,
+// and upserts the subscription against this phone number. Safe to call
+// repeatedly (e.g. every app open) — upsert just refreshes the row.
+async function subscribeToPush(phone) {
+  if (!phone) return { ok: false, reason: "no-phone" };
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { ok: false, reason: "unsupported" };
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return { ok: false, reason: "denied" };
+
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = subscription.toJSON();
+    const { error } = await supabase.from("push_subscriptions").upsert({
+      endpoint: json.endpoint,
+      keys: json.keys,
+      phone,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "endpoint" });
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
+
+// Fire-and-forget push for a single order-status change. Called from the
+// owner's browser session (which is what triggers status changes), hitting
+// our own API route same-origin — no secret needed since this targets one
+// specific phone rather than a broadcast.
+function sendOrderStatusPush(phone, title, body) {
+  if (!phone) return;
+  fetch("/api/send-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, title, body }),
+  }).catch(() => {
+    // Non-fatal — the order status itself already saved; a missed push
+    // notification shouldn't surface as an error to the owner.
+  });
+}
 
 // ─────────────────────────────────────────────
 // STORAGE HELPERS (Supabase-backed, cross-device)
@@ -163,14 +226,14 @@ function defaultPlanConfig() {
     raita: "",
     sweet: "",
     // gold = Medium price (base). goldLargeSurcharge = flat ₹ added on top for Large.
-    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
+    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, goldMini: 149, raita: 30, salad: 20, sweet: 30 },
     // Per-variant on/off (owner can hide a plan if stocked out for the day).
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
-    enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, raita: true, salad: true, sweet: true },
+    enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, goldMini: true, raita: true, salad: true, sweet: true },
     // Optional photo per variant, stored as a resized/compressed base64 JPEG
     // data URL. Empty string means "no photo".
-    photos: { gold: "", standard: "", mini: "" },
+    photos: { gold: "", standard: "", mini: "", goldMini: "" },
   };
 }
 
@@ -1269,12 +1332,14 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const isGold = plan === "gold";
   const isStandard = plan === "standard";
   const isMini = plan === "mini";
+  const isGoldMini = plan === "goldMini";
   const [bread, setBread] = useState(BREAD_CHOICES[0].id);
   const [sabjiSel, setSabjiSel] = useState([]); // Gold: up to 2 sabji ids
   const [sweetOrRaita, setSweetOrRaita] = useState("raita");
   const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
   const [standardBase, setStandardBase] = useState("rice"); // "rice" | "chapati"
   const [miniBase, setMiniBase] = useState("chapati"); // "chapati" | "rice"
+  const [goldMiniSabji, setGoldMiniSabji] = useState(sabjis[0]?.id || ""); // Gold Mini: choice of any 1 of all 3 sabjis
 
   // ── Homely Gold flow: two steps ──
   // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
@@ -1297,6 +1362,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 
   const goldValid = sabjiSel.length === 2;
   const miniValid = !!miniSabji;
+  const goldMiniValid = !!goldMiniSabji;
 
   const handleAdd = () => {
     if (isGold) {
@@ -1323,10 +1389,17 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
         ? `Homely Mini (Rice) — Steamed Rice, ${sabji.name}, Standard Salad`
         : `Homely Mini — 4 Chapati, ${sabji.name}, Standard Salad`;
       onAdd(id, name, planConfig.prices.mini);
+    } else if (isGoldMini) {
+      if (!goldMiniValid) return;
+      const sabji = sabjis.find(s => s.id === goldMiniSabji);
+      const sweetRaitaLabel = sweetOrRaita === "raita" ? planConfig.raita : planConfig.sweet;
+      const id = `goldmini:${goldMiniSabji}:${sweetOrRaita}`;
+      const name = `Homely Gold Mini — 4 Ghee Chapati, ${sabji.name}, ${sweetRaitaLabel}, ${planConfig.salad}`;
+      onAdd(id, name, planConfig.prices.goldMini);
     }
   };
 
-  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : "Homely Mini";
+  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : isGoldMini ? "✨ Homely Gold Mini" : "Homely Mini";
   const subtitle = isStandard
     ? "This is what's included — just confirm"
     : isGold
@@ -1526,9 +1599,55 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
           </>
         )}
 
+        {isGoldMini && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>
+                Choose 1 Sabji <span style={{ color: goldMiniValid ? "#2E7D32" : C.inkLight, fontWeight: 700 }}>({goldMiniValid ? "1/1 selected" : "0/1 selected"})</span>
+              </label>
+              {sabjis.map(s => (
+                <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                  <input type="radio" name="goldMiniSabji" checked={goldMiniSabji === s.id} onChange={() => setGoldMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                  {s.name} {s.premium && <span style={{ fontSize: 11, color: C.saffron, fontWeight: 700 }}>⭐ Premium</span>}
+                </label>
+              ))}
+              {!goldMiniValid && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "#FDECEA", color: "#B71C1C", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                  ⚠️ Please choose a sabji to continue
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                4 Ghee Chapati
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose Raita or Sweet</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                <input type="radio" name="sr" checked={sweetOrRaita === "raita"} onChange={() => setSweetOrRaita("raita")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.raita} (Raita)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                <input type="radio" name="sr" checked={sweetOrRaita === "sweet"} onChange={() => setSweetOrRaita("sweet")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.sweet} (Sweet)
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Salad for the Day</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.salad}
+              </label>
+            </div>
+          </>
+        )}
+
         <button
           className="ht-btn btn-primary btn-full btn-lg"
-          disabled={isGold ? (goldStep === "build" ? !goldValid : false) : isMini ? !miniValid : false}
+          disabled={isGold ? (goldStep === "build" ? !goldValid : false) : isMini ? !miniValid : isGoldMini ? !goldMiniValid : false}
           onClick={() => {
             if (isGold && goldStep === "build") {
               if (!goldValid) return;
@@ -1544,9 +1663,54 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
             ? "Continue → Choose Size"
             : isMini && !miniValid
             ? "Choose a sabji to continue"
-            : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : planConfig.prices.mini}`}
+            : isGoldMini && !goldMiniValid
+            ? "Choose a sabji to continue"
+            : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : isGoldMini ? planConfig.prices.goldMini : planConfig.prices.mini}`}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// COMPLETE YOUR MEAL MODAL (customer) — shown right after a thali plan
+// (Homely Gold / Standard / Mini / Gold Mini) is added to the cart, as a
+// gentle nudge toward Today's Extras. Entirely optional: the extras use
+// the same shared cart +/- steppers as the main menu list, so nothing is
+// forced, and either button below just moves on to checkout.
+// ─────────────────────────────────────────────
+function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-sheet" style={{ paddingBottom: 24 }}>
+        <div style={{ textAlign: "center", padding: "8px 0 18px" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🥗</div>
+          <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Complete Your Meal?</h3>
+          <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>
+            Added to your order! Round it off with today's extras — <span style={{ fontWeight: 700 }}>totally optional.</span>
+          </p>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          {extraItems.map(item => (
+            <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{item.name}</div>
+                <div style={{ fontSize: 13, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="ht-btn btn-secondary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, -1)}>−</button>
+                <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: "center", color: C.ink }}>{cart[item.id] || 0}</span>
+                <button className="ht-btn btn-primary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, 1)}>+</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button className="ht-btn btn-primary btn-full btn-lg" onClick={onCheckout}>
+          Continue to Checkout · ₹{cartTotal}
+        </button>
       </div>
     </div>
   );
@@ -2042,12 +2206,140 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // ── PWA "Install App" button ──
+  // Chrome's own install prompt/mini-infobar is unreliable (one-time dismissal
+  // caching, engagement heuristics, and it never fires on iOS Safari at all),
+  // so we capture the `beforeinstallprompt` event ourselves and drive our own
+  // button off it. Hidden entirely once the app is already installed/running
+  // standalone, or on browsers that never fire the event (falls back to null
+  // rather than showing a button that can't do anything).
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(
+    typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true)
+  );
+  useEffect(() => {
+    const onBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    const onAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setIsStandalone(true);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+  const handleInstallClick = async () => {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    // The captured event can only be used once — clear it either way.
+    setInstallPromptEvent(null);
+  };
+
+  // ── iOS instructional banner ──
+  // Safari never fires beforeinstallprompt, so there's nothing to hook a
+  // button into — the only option is telling the user how to do it manually.
+  // Dismissal is remembered (localStorage) so it doesn't nag on every visit.
+  const [isIOSSafari] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const ua = window.navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && "ontouchend" in document);
+    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    return isIOS && isSafari;
+  });
+  const [iosBannerDismissed, setIosBannerDismissed] = useState(
+    typeof window !== "undefined" && localStorage.getItem("ht_ios_install_dismissed") === "1"
+  );
+  const dismissIosBanner = () => {
+    localStorage.setItem("ht_ios_install_dismissed", "1");
+    setIosBannerDismissed(true);
+  };
+
+  // ── Android/desktop Chrome manual-install fallback ──
+  // beforeinstallprompt is gated by Chrome's own engagement heuristics (time
+  // on site, interaction count, prior dismissals) and can simply never fire
+  // in a given session even on a fully-installable site — that's expected
+  // Chrome behavior, not a bug we can code around. After a grace period with
+  // no prompt event, show manual instructions instead of a dead-end. Only
+  // for non-iOS (iOS already gets its own banner above) and non-standalone.
+  const [showManualInstallHint, setShowManualInstallHint] = useState(false);
+  const [manualHintDismissed, setManualHintDismissed] = useState(
+    typeof window !== "undefined" && localStorage.getItem("ht_manual_install_dismissed") === "1"
+  );
+  useEffect(() => {
+    if (isIOSSafari || isStandalone) return;
+    const t = setTimeout(() => {
+      if (!installPromptEvent) setShowManualInstallHint(true);
+    }, 10000); // give the real prompt 10s to show up first
+    return () => clearTimeout(t);
+  }, [isIOSSafari, isStandalone, installPromptEvent]);
+  const dismissManualInstallHint = () => {
+    localStorage.setItem("ht_manual_install_dismissed", "1");
+    setManualHintDismissed(true);
+  };
+
+  // ── Notification opt-in ──
+  // Only offer this to returning customers (we need a phone number to target
+  // pushes at, and the only place we reliably have one client-side is the
+  // last phone used to place an order). Hidden once granted, or if the
+  // browser has no push support (or the user already said no).
+  const [knownPhone] = useState(
+    typeof window !== "undefined" ? window.localStorage.getItem("htLastCustomerPhone") : ""
+  );
+  const [notifStatus, setNotifStatus] = useState(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+  // Surfaced on screen (not just swallowed) — subscribeToPush() can fail for
+  // several real reasons (push service unreachable, invalid key, browser
+  // quirk) and previously we discarded the reason, making it impossible to
+  // tell what actually went wrong from a phone with no dev console open.
+  const [notifError, setNotifError] = useState(null);
+  const [notifBusy, setNotifBusy] = useState(false);
+  const handleEnableNotifications = async () => {
+    setNotifBusy(true);
+    setNotifError(null);
+    const result = await subscribeToPush(knownPhone);
+    setNotifBusy(false);
+    if (result.ok) {
+      setNotifStatus("granted");
+    } else {
+      setNotifStatus(typeof Notification !== "undefined" ? Notification.permission : "denied");
+      setNotifError(result.reason || "Unknown error");
+    }
+  };
+  // ── Self-heal a "granted but never actually subscribed" state ──
+  // Notification.permission is a permanent browser-level flag: once granted,
+  // it stays granted even if the subscribe+save step that should follow it
+  // failed (or, before this fix, was skipped entirely because notifStatus
+  // read directly from this flag and showed "enabled" without ever calling
+  // subscribeToPush again). That made the UI lie — "granted" looked
+  // identical whether or not a working subscription actually existed. On
+  // every load where permission is already granted, silently re-run the
+  // subscribe+save flow: requestPermission() resolves instantly with no
+  // dialog when already granted, and the upsert is idempotent (keyed by
+  // endpoint), so this is a safe, invisible repair rather than a new ask.
+  useEffect(() => {
+    if (knownPhone && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      subscribeToPush(knownPhone).then(result => {
+        if (!result.ok) setNotifError(result.reason || "Unknown error");
+      });
+    }
+  }, [knownPhone]);
   const [cart, setCart] = useState({});
   // Metadata for configured Homely Gold / Mini cart lines (id -> { name, price }).
   // Regular menu items and the fixed Standard / Extras lines don't need this —
   // their name/price is derived fresh from menu / planConfig every render.
   const [planCartMeta, setPlanCartMeta] = useState({});
   const [planChoiceModal, setPlanChoiceModal] = useState(null); // "gold" | "standard" | "mini" | null
+  // Shown right after a plan is added to cart, nudging toward Today's Extras.
+  const [showExtrasPrompt, setShowExtrasPrompt] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null); // { src, label } | null — full-screen image viewer
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -2209,6 +2501,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     setPlanCartMeta(prev => ({ ...prev, [id]: { name, price } }));
     setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     setPlanChoiceModal(null);
+    // Nudge toward Today's Extras right after a plan is added — optional,
+    // only shown if the owner actually has extras live today.
+    if (extraItems.length > 0) setShowExtrasPrompt(true);
   };
 
   const handleConfirmOrder = (order) => {
@@ -2412,7 +2707,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
 
           {/* ── MEAL PLANS: Homely Gold / Standard / Mini ── */}
-          {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini) && (
+          {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini || planConfig.enabled?.goldMini) && (
             <div style={{ marginBottom: 16 }}>
               <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🍽️ Meal Plans</h2>
               <div className="ht-card slide-in" style={{ padding: 0, marginBottom: 10, overflow: "hidden" }}>
@@ -2443,6 +2738,30 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                             : `₹${planConfig.prices.gold + (planConfig.prices.goldLargeSurcharge || 0)}`}
                         </div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("gold")}>+ Add</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {planConfig.enabled?.goldMini && (
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.goldMini && (
+                        <img
+                          src={planConfig.photos.goldMini}
+                          alt="Homely Gold Mini"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold Mini</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("goldMini")}>+ Add</button>
                       </div>
                     </div>
                   </div>
@@ -2569,6 +2888,17 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               planConfig={planConfig}
               onAdd={addPlanToCart}
               onClose={() => setPlanChoiceModal(null)}
+            />
+          )}
+
+          {showExtrasPrompt && (
+            <CompleteYourMealModal
+              extraItems={extraItems}
+              cart={cart}
+              setQty={setQty}
+              cartTotal={cartTotal}
+              onCheckout={() => { setShowExtrasPrompt(false); setShowModal(true); }}
+              onClose={() => setShowExtrasPrompt(false)}
             />
           )}
 
@@ -2701,6 +3031,95 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{ marginTop: 2 }}><HeartIcon s={11} c={HC.orange} /></div>
           </div>
         </div>
+
+        {!isStandalone && installPromptEvent && (
+          <button
+            onClick={handleInstallClick}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 12, padding: "9px 16px",
+              background: HC.orange, color: "#fff", border: "none",
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13.5, cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(224,115,26,0.35)",
+            }}
+          >
+            ⬇ Install App
+          </button>
+        )}
+
+        {!isStandalone && !isIOSSafari && !installPromptEvent && showManualInstallHint && !manualHintDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap Chrome's <b>⋮ menu</b> then <b>"Add to Home screen" / "Install app"</b>
+            </div>
+            <button
+              onClick={dismissManualInstallHint}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
+        {!isStandalone && isIOSSafari && !iosBannerDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b>
+            </div>
+            <button
+              onClick={dismissIosBanner}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
+        {knownPhone && notifStatus === "default" && (
+          <button
+            onClick={handleEnableNotifications}
+            disabled={notifBusy}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 8, padding: "8px 16px",
+              background: "#fff", color: HC.orange, border: `1.5px solid ${HC.orange}`,
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
+              opacity: notifBusy ? 0.6 : 1,
+            }}
+          >
+            {notifBusy ? "Enabling…" : "🔔 Get order updates"}
+          </button>
+        )}
+        {knownPhone && notifStatus === "granted" && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D32", fontWeight: 700 }}>
+            ✓ Order updates enabled
+          </div>
+        )}
+        {notifError && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", maxWidth: 320,
+            background: "#FDECEA", border: "1px solid #D32F2F", borderRadius: 10,
+            fontSize: 12, color: "#B71C1C", lineHeight: 1.4,
+          }}>
+            Couldn't enable notifications: {notifError}
+          </div>
+        )}
       </div>
 
       {/* ═══════ SECTION 2 — HERO ═══════ */}
@@ -3331,79 +3750,18 @@ function MenuEditor({ menu, onSave }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// PLAN MENU EDITOR (owner) — feed just the sabjis + rice/salad/raita/sweet
-// for the day, and Homely Gold / Standard / Mini publish themselves
-// automatically with the correct choices built in.
-// ─────────────────────────────────────────────
-function PlanMenuEditor({ planConfig, onSave }) {
-  const base = planConfig && planConfig.sabjis && planConfig.sabjis.length === 3
-    ? normalisePlanConfig(planConfig)
-    : defaultPlanConfig();
-  const [sabjis, setSabjis] = useState(base.sabjis.map(s => ({ ...s })));
-  const [rice, setRice] = useState(base.rice || "");
-  const [salad, setSalad] = useState(base.salad || "");
-  const [raita, setRaita] = useState(base.raita || "");
-  const [sweet, setSweet] = useState(base.sweet || "");
-  const [prices, setPrices] = useState({ ...defaultPlanConfig().prices, ...(base.prices || {}) });
-  const [enabled, setEnabled] = useState({ ...defaultPlanConfig().enabled, ...(base.enabled || {}) });
-  const [photos, setPhotos] = useState({ ...defaultPlanConfig().photos, ...(base.photos || {}) });
-  const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false });
-  const [uploadErr, setUploadErr] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  const setSabjiName = (i, name) => setSabjis(prev => prev.map((s, idx) => idx === i ? { ...s, name } : s));
-  const setPremium = (i) => setSabjis(prev => prev.map((s, idx) => ({ ...s, premium: idx === i })));
-  const setPrice = (key, val) => setPrices(prev => ({ ...prev, [key]: val === "" ? "" : parseInt(val) || 0 }));
-  const toggleEnabled = (key) => setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
-
-  const handlePhotoUpload = async (key, file) => {
-    if (!file) return;
-    setUploadErr("");
-    if (!file.type.startsWith("image/")) { setUploadErr("Please select an image file"); return; }
-    if (file.size > 10 * 1024 * 1024) { setUploadErr("Image too big (max 10 MB)"); return; }
-    setUploading(prev => ({ ...prev, [key]: true }));
-    try {
-      const dataUrl = await resizeAndCompressImage(file);
-      setPhotos(prev => ({ ...prev, [key]: dataUrl }));
-    } catch (err) {
-      setUploadErr("Could not process image");
-    } finally {
-      setUploading(prev => ({ ...prev, [key]: false }));
-    }
-  };
-  const removePhoto = (key) => setPhotos(prev => ({ ...prev, [key]: "" }));
-
-  const filledSabjis = sabjis.filter(s => s.name.trim()).length;
-  const ready = filledSabjis === 3 && rice.trim() && salad.trim() && raita.trim() && sweet.trim();
-
-  const handleSave = () => {
-    onSave({
-      date: todayStr(),
-      sabjis: sabjis.map(s => ({ ...s, name: s.name.trim() })),
-      rice: rice.trim(),
-      salad: salad.trim(),
-      raita: raita.trim(),
-      sweet: sweet.trim(),
-      prices: {
-        gold: prices.gold || 0, goldLargeSurcharge: prices.goldLargeSurcharge || 0,
-        standard: prices.standard || 0, mini: prices.mini || 0,
-        raita: prices.raita || 0, salad: prices.salad || 0, sweet: prices.sweet || 0,
-      },
-      enabled: {
-        goldMedium: !!enabled.goldMedium, goldLarge: !!enabled.goldLarge,
-        standard: !!enabled.standard, mini: !!enabled.mini,
-        raita: !!enabled.raita, salad: !!enabled.salad, sweet: !!enabled.sweet,
-      },
-      photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "" },
-    });
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
-  };
-
-  const isPublishedToday = planConfig && planConfig.date === todayStr();
-
-  // Small reusable toggle switch (used for Gold's two independent size toggles)
-  const ToggleSwitch = ({ on, onClick, label }) => (
+// Small reusable toggle switch (used for Gold's two independent size toggles).
+// Defined at module scope, NOT inside PlanMenuEditor: a component declared
+// inside another component's render body is a brand-new function identity on
+// every render, which forces React to unmount + remount it whenever the
+// parent re-renders for any reason (e.g. the 20s realtime catch-up sync).
+// That was silently destroying the <input type="file"> DOM node while the
+// OS file-picker dialog was still open — so a photo pick would close the
+// dialog and appear to do nothing, with no error, because the change event
+// had nowhere left to land. Keeping these as stable top-level components
+// avoids that remount entirely.
+function ToggleSwitch({ on, onClick, label }) {
+  return (
     <button
       onClick={onClick}
       style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: on ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
@@ -3412,10 +3770,12 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
     </button>
   );
+}
 
-  // Homely Gold: shares one photo, but Medium/Large have independent
-  // availability toggles so one size can sell out while the other stays live.
-  const GoldAvailabilityBlock = () => (
+// Homely Gold: shares one photo, but Medium/Large have independent
+// availability toggles so one size can sell out while the other stays live.
+function GoldAvailabilityBlock({ enabled, toggleEnabled, photos, uploading, handlePhotoUpload, removePhoto }) {
+  return (
     <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 10 }}>✨ Homely Gold</div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10 }}>
@@ -3457,9 +3817,11 @@ function PlanMenuEditor({ planConfig, onSave }) {
       </div>
     </div>
   );
+}
 
-  // Reusable per-variant availability & photo row
-  const VariantAvailabilityRow = ({ vkey, label }) => (
+// Reusable per-variant availability & photo row
+function VariantAvailabilityRow({ vkey, label, enabled, toggleEnabled, photos, uploading, handlePhotoUpload, removePhoto }) {
+  return (
     <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
         <div>
@@ -3500,19 +3862,91 @@ function PlanMenuEditor({ planConfig, onSave }) {
       </div>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────
+// PLAN MENU EDITOR (owner) — feed just the sabjis + rice/salad/raita/sweet
+// for the day, and Homely Gold / Standard / Mini publish themselves
+// automatically with the correct choices built in.
+// ─────────────────────────────────────────────
+function PlanMenuEditor({ planConfig, onSave }) {
+  const base = planConfig && planConfig.sabjis && planConfig.sabjis.length === 3
+    ? normalisePlanConfig(planConfig)
+    : defaultPlanConfig();
+  const [sabjis, setSabjis] = useState(base.sabjis.map(s => ({ ...s })));
+  const [rice, setRice] = useState(base.rice || "");
+  const [salad, setSalad] = useState(base.salad || "");
+  const [raita, setRaita] = useState(base.raita || "");
+  const [sweet, setSweet] = useState(base.sweet || "");
+  const [prices, setPrices] = useState({ ...defaultPlanConfig().prices, ...(base.prices || {}) });
+  const [enabled, setEnabled] = useState({ ...defaultPlanConfig().enabled, ...(base.enabled || {}) });
+  const [photos, setPhotos] = useState({ ...defaultPlanConfig().photos, ...(base.photos || {}) });
+  const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false, goldMini: false });
+  const [uploadErr, setUploadErr] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const setSabjiName = (i, name) => setSabjis(prev => prev.map((s, idx) => idx === i ? { ...s, name } : s));
+  const setPremium = (i) => setSabjis(prev => prev.map((s, idx) => ({ ...s, premium: idx === i })));
+  const setPrice = (key, val) => setPrices(prev => ({ ...prev, [key]: val === "" ? "" : parseInt(val) || 0 }));
+  const toggleEnabled = (key) => setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
+
+  const handlePhotoUpload = async (key, file) => {
+    if (!file) return;
+    setUploadErr("");
+    if (!file.type.startsWith("image/")) { setUploadErr("Please select an image file"); return; }
+    if (file.size > 10 * 1024 * 1024) { setUploadErr("Image too big (max 10 MB)"); return; }
+    setUploading(prev => ({ ...prev, [key]: true }));
+    try {
+      const dataUrl = await resizeAndCompressImage(file);
+      setPhotos(prev => ({ ...prev, [key]: dataUrl }));
+    } catch (err) {
+      setUploadErr("Could not process image");
+    } finally {
+      setUploading(prev => ({ ...prev, [key]: false }));
+    }
+  };
+  const removePhoto = (key) => setPhotos(prev => ({ ...prev, [key]: "" }));
+
+  const filledSabjis = sabjis.filter(s => s.name.trim()).length;
+  const ready = filledSabjis === 3 && rice.trim() && salad.trim() && raita.trim() && sweet.trim();
+
+  const handleSave = () => {
+    onSave({
+      date: todayStr(),
+      sabjis: sabjis.map(s => ({ ...s, name: s.name.trim() })),
+      rice: rice.trim(),
+      salad: salad.trim(),
+      raita: raita.trim(),
+      sweet: sweet.trim(),
+      prices: {
+        gold: prices.gold || 0, goldLargeSurcharge: prices.goldLargeSurcharge || 0,
+        standard: prices.standard || 0, mini: prices.mini || 0, goldMini: prices.goldMini || 0,
+        raita: prices.raita || 0, salad: prices.salad || 0, sweet: prices.sweet || 0,
+      },
+      enabled: {
+        goldMedium: !!enabled.goldMedium, goldLarge: !!enabled.goldLarge,
+        standard: !!enabled.standard, mini: !!enabled.mini, goldMini: !!enabled.goldMini,
+        raita: !!enabled.raita, salad: !!enabled.salad, sweet: !!enabled.sweet,
+      },
+      photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "", goldMini: photos.goldMini || "" },
+    });
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+  };
+
+  const isPublishedToday = planConfig && planConfig.date === todayStr();
 
   return (
     <div style={{ padding: "20px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>Today's Plans</h2>
-          <p style={{ fontSize: 13, color: C.inkMid }}>{fmtDate(todayStr())} · Just fill sabjis + extras below — Gold, Standard &amp; Mini update automatically</p>
+          <p style={{ fontSize: 13, color: C.inkMid }}>{fmtDate(todayStr())} · Just fill sabjis + extras below — Gold, Standard, Mini &amp; Gold Mini update automatically</p>
         </div>
       </div>
 
       {!isPublishedToday && (
         <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#8D6E00", fontWeight: 600 }}>
-          ⚠️ Plans not published for today yet — customers won't see Homely Gold/Standard/Mini until you publish.
+          ⚠️ Plans not published for today yet — customers won't see Homely Gold/Standard/Mini/Gold Mini until you publish.
         </div>
       )}
 
@@ -3520,7 +3954,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🥘 Today's Sabjis (exactly 3)</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
-          Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2
+          Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2 · Gold Mini: choice of any 1 of these 3 (incl. Premium)
         </p>
         {sabjis.map((s, i) => (
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -3568,9 +4002,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
         <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🎛️ Plan Availability &amp; Photos</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Turn a plan off if you're out of stock. Photos are optional — customers see them on the plan cards.</p>
         {uploadErr && <div style={{ background: C.redLight, color: C.red, padding: "6px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{uploadErr}</div>}
-        <GoldAvailabilityBlock />
-        <VariantAvailabilityRow vkey="standard" label="Homely Standard" />
-        <VariantAvailabilityRow vkey="mini"     label="Homely Mini" />
+        <GoldAvailabilityBlock enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="standard" label="Homely Standard" enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="mini"     label="Homely Mini"     enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="goldMini" label="Homely Gold Mini" enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
 
         {/* Extras (no photo, just toggle) */}
         <div style={{ marginTop: 6, paddingTop: 14, borderTop: `1px dashed ${C.border}` }}>
@@ -3616,6 +4051,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Homely Mini ₹</label>
             <input className="ht-input" type="number" value={prices.mini} onChange={e => setPrice("mini", e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Homely Gold Mini ₹</label>
+            <input className="ht-input" type="number" value={prices.goldMini} onChange={e => setPrice("goldMini", e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Raita (standalone) ₹</label>
@@ -4031,6 +4470,16 @@ function parseKotItem(rawName) {
     return {
       title: `Homely Gold — ${size}`,
       sub: [bread, sabjis, raitaSweet, rice, salad].filter(Boolean),
+    };
+  }
+
+  // Homely Gold Mini — bread, sabji, raita/sweet, salad
+  m = name.match(/^Homely Gold Mini — (.+)$/);
+  if (m) {
+    const [bread, sabji, raitaSweet, salad] = m[1].split(", ");
+    return {
+      title: "Homely Gold Mini",
+      sub: [bread, sabji, raitaSweet, salad].filter(Boolean),
     };
   }
 
@@ -6139,6 +6588,93 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
 // ─────────────────────────────────────────────
 // BACKEND SHELL
 // ─────────────────────────────────────────────
+// ── Owner broadcast notifications ──
+// Sends a custom push message to either every customer with an active
+// subscription, or just today's customers. Requires the owner's real
+// Supabase Auth session (checked server-side in app/api/send-push).
+function NotifyCenter() {
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState("today");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleSend = async () => {
+    if (!message.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/send-push", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || ""}`,
+        },
+        body: JSON.stringify({
+          target,
+          title: "Homely Tiffins",
+          body: message.trim(),
+        }),
+      });
+      const data = await res.json();
+      setResult(data.ok ? `Sent to ${data.sent} device(s)${data.failed ? `, ${data.failed} failed` : ""}.` : `Failed: ${data.error}`);
+      if (data.ok) setMessage("");
+    } catch (err) {
+      setResult(`Failed: ${err.message}`);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Send a Notification</h2>
+      <p style={{ fontSize: 13, color: "#8A7A65", marginBottom: 16 }}>
+        Push notification to customers who've enabled updates and installed the app.
+      </p>
+
+      <label style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 6 }}>Send to</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button
+          onClick={() => setTarget("today")}
+          style={{ flex: 1, padding: "10px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", border: target === "today" ? "2px solid #E0731A" : "1px solid #ddd", background: target === "today" ? "#FFF3E8" : "#fff" }}
+        >
+          Today's customers
+        </button>
+        <button
+          onClick={() => setTarget("all")}
+          style={{ flex: 1, padding: "10px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", border: target === "all" ? "2px solid #E0731A" : "1px solid #ddd", background: target === "all" ? "#FFF3E8" : "#fff" }}
+        >
+          All customers
+        </button>
+      </div>
+
+      <label style={{ fontSize: 12, fontWeight: 700, display: "block", marginBottom: 6 }}>Message</label>
+      <textarea
+        className="ht-input"
+        rows={3}
+        maxLength={180}
+        placeholder="e.g. Kitchen closed today due to a holiday."
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        style={{ width: "100%", resize: "vertical", marginBottom: 12 }}
+      />
+
+      <button
+        className="ht-btn btn-full"
+        disabled={sending || !message.trim()}
+        onClick={handleSend}
+        style={{ background: "#E0731A", color: "#fff", opacity: sending || !message.trim() ? 0.6 : 1 }}
+      >
+        {sending ? "Sending…" : "🔔 Send Notification"}
+      </button>
+
+      {result && (
+        <p style={{ fontSize: 13, marginTop: 10, color: result.startsWith("Failed") ? "#C0392B" : "#2E7D32" }}>{result}</p>
+      )}
+    </div>
+  );
+}
+
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
   const pendingCount = todayOrders.filter(o => o.status === "pending").length;
@@ -6153,6 +6689,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
     { id: "promo",    label: "🎟️ Promo" },
+    { id: "notify",   label: "🔔 Notify" },
   ];
   return (
     <div style={{ minHeight: "100vh", background: C.cream }}>
@@ -6260,6 +6797,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
+        {tab === "notify"    && <NotifyCenter />}
       </div>
     </div>
   );
@@ -6458,6 +6996,18 @@ export default function App() {
       setOwnerAuthed(!!session);
     });
     return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  // Register the PWA service worker. This was missing entirely, which is the
+  // most likely reason the "Add to Home Screen" prompt showed up inconsistently:
+  // Chrome requires an active service worker registration (on top of the
+  // manifest) before it will consider the app installable at all.
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Non-fatal: app still works without it, just won't be installable.
+      });
+    }
   }, []);
 
   const [menu, setMenu] = useState(null);
@@ -6668,6 +7218,21 @@ export default function App() {
       window.removeEventListener("focus", onWake);
     };
   }, [loaded, catchUpSync]);
+
+  // ── Polling safety net for the owner dashboard ──
+  // postgres_changes realtime can silently die on mobile without ever firing
+  // 'visibilitychange', 'online', or 'focus' — screen stays on, tab stays
+  // foregrounded, the websocket just drops and doesn't reconnect on its own.
+  // That's what causes "new order doesn't ring until I manually refresh":
+  // the wake-recovery effect above only fires on those events, so a silent
+  // drop with none of them just sits stale indefinitely. This guarantees a
+  // worst-case staleness of ~20s regardless of whether any wake event fires,
+  // so a pending order can never go unrung for more than that.
+  useEffect(() => {
+    if (!loaded || !(route === "owner" && ownerAuthed)) return;
+    const id = setInterval(() => { catchUpSync(); }, 20000);
+    return () => clearInterval(id);
+  }, [loaded, route, ownerAuthed, catchUpSync]);
 
   // ── New order alert sound ──
   useOrderAlert(todayOrders, route === "owner" && ownerAuthed);
@@ -6882,6 +7447,16 @@ export default function App() {
     setTodayOrders(updated);
     await writeOrders(updated.filter(o => o.id === orderId));
 
+    const STATUS_PUSH_COPY = {
+      preparing: "Your order is being prepared 🍳",
+      ready: "Your order is ready and will be dispatched shortly 📦",
+      dispatched: "Your order is out for delivery 🛵",
+      delivered: "Delivered! Enjoy your meal 🍱",
+    };
+    if (STATUS_PUSH_COPY[nextStatus]) {
+      sendOrderStatusPush(order.phone, "Homely Tiffins", STATUS_PUSH_COPY[nextStatus]);
+    }
+
     // When delivered → auto-debit credit ledger.
     // Idempotent: each order can only be credited ONCE, no matter how many
     // times handleAdvanceOrder is called with nextStatus="delivered".
@@ -6989,6 +7564,7 @@ export default function App() {
     const updated = base.map(o => o.id === orderId ? { ...o, status: "rejected" } : o);
     setTodayOrders(updated);
     await writeOrders(updated.filter(o => o.id === orderId));
+    sendOrderStatusPush(order.phone, "Homely Tiffins", "Sorry — your order couldn't be accepted today. Please call us for details.");
   }, [todayOrders]);
 
   // ── Submit customer rating ──
