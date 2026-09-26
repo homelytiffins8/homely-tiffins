@@ -10,19 +10,55 @@ const SUPABASE_ANON_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
 // Service role key bypasses RLS — required because push_subscriptions has no
 // authenticated owner session backing it (same reasoning as reminder-cron's
 // use of a service key for the orders table).
-const supabase = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+//
+// Built lazily (not at module load) for the same reason VAPID is lazy below:
+// the Supabase client throws synchronously if given an empty/missing key,
+// and Next.js runs a route's top-level code during the build's "Collecting
+// page data" step — so a module-scope createClient() call here would fail
+// the entire production build in any environment missing this one secret.
+let _supabase = null;
+function getSupabase() {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!_supabase) _supabase = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return _supabase;
+}
 const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || "mailto:owner@homelytiffins.example",
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+// VAPID setup is deliberately NOT run at module load. Next.js executes a
+// route's top-level code during the build's "Collecting page data" step,
+// and web-push throws synchronously if the public/private key is missing —
+// which would fail the entire production build any time this environment
+// doesn't have VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY configured yet (as
+// happened when this route first shipped to an environment that only had
+// them set for Preview). Instead, initialize once, lazily, on first actual
+// request, and fail that one request cleanly instead of the whole build.
+let vapidReady = false;
+function ensureVapidConfigured() {
+  if (vapidReady) return true;
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return false;
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || "mailto:owner@homelytiffins.example",
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  vapidReady = true;
+  return true;
+}
 
 // Body shapes:
 //   Automatic (single customer):  { phone, title, body, url? }
 //   Owner broadcast:              { target: "all" | "today", title, body, url?, secret }
 export async function POST(request) {
+  if (!ensureVapidConfigured()) {
+    console.error("[send-push] VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not configured in this environment");
+    return Response.json({ ok: false, error: "Push notifications are not configured on this environment (missing VAPID keys)" }, { status: 503 });
+  }
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.error("[send-push] SUPABASE_SERVICE_ROLE_KEY not configured in this environment");
+    return Response.json({ ok: false, error: "Push notifications are not configured on this environment (missing service role key)" }, { status: 503 });
+  }
+
   let payload;
   try {
     payload = await request.json();
