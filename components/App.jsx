@@ -3691,6 +3691,120 @@ function MenuEditor({ menu, onSave }) {
   );
 }
 
+// Small reusable toggle switch (used for Gold's two independent size toggles).
+// Defined at module scope, NOT inside PlanMenuEditor: a component declared
+// inside another component's render body is a brand-new function identity on
+// every render, which forces React to unmount + remount it whenever the
+// parent re-renders for any reason (e.g. the 20s realtime catch-up sync).
+// That was silently destroying the <input type="file"> DOM node while the
+// OS file-picker dialog was still open — so a photo pick would close the
+// dialog and appear to do nothing, with no error, because the change event
+// had nowhere left to land. Keeping these as stable top-level components
+// avoids that remount entirely.
+function ToggleSwitch({ on, onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: on ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
+      aria-label={label}
+    >
+      <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
+    </button>
+  );
+}
+
+// Homely Gold: shares one photo, but Medium/Large have independent
+// availability toggles so one size can sell out while the other stays live.
+function GoldAvailabilityBlock({ enabled, toggleEnabled, photos, uploading, handlePhotoUpload, removePhoto }) {
+  return (
+    <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 10 }}>✨ Homely Gold</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Medium</div>
+          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled.goldMedium ? "Available for customers" : "Hidden — stocked out"}</div>
+        </div>
+        <ToggleSwitch on={!!enabled.goldMedium} onClick={() => toggleEnabled("goldMedium")} label="Toggle Homely Gold Medium" />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Large</div>
+          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled.goldLarge ? "Available for customers" : "Hidden — stocked out"}</div>
+        </div>
+        <ToggleSwitch on={!!enabled.goldLarge} onClick={() => toggleEnabled("goldLarge")} label="Toggle Homely Gold Large" />
+      </div>
+      {/* Photo strip — shared between both sizes */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {photos.gold ? (
+          <img src={photos.gold} alt="Homely Gold preview" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
+        ) : (
+          <div style={{ width: 60, height: 60, borderRadius: 8, background: C.cream, border: `1px dashed ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLight, fontSize: 20 }}>📷</div>
+        )}
+        <div style={{ flex: 1, display: "flex", gap: 6 }}>
+          <label className="ht-btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
+            {uploading.gold ? "Uploading…" : photos.gold ? "Change" : "Upload photo"}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              disabled={uploading.gold}
+              onChange={e => { handlePhotoUpload("gold", e.target.files?.[0]); e.target.value = ""; }}
+            />
+          </label>
+          {photos.gold && (
+            <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => removePhoto("gold")}>Remove</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Reusable per-variant availability & photo row
+function VariantAvailabilityRow({ vkey, label, enabled, toggleEnabled, photos, uploading, handlePhotoUpload, removePhoto }) {
+  return (
+    <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{label}</div>
+          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled[vkey] ? "Available for customers" : "Hidden — stocked out"}</div>
+        </div>
+        {/* Toggle switch */}
+        <button
+          onClick={() => toggleEnabled(vkey)}
+          style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: enabled[vkey] ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
+          aria-label={`Toggle ${label}`}
+        >
+          <span style={{ position: "absolute", top: 3, left: enabled[vkey] ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
+        </button>
+      </div>
+      {/* Photo strip */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {photos[vkey] ? (
+          <img src={photos[vkey]} alt={`${label} preview`} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
+        ) : (
+          <div style={{ width: 60, height: 60, borderRadius: 8, background: C.cream, border: `1px dashed ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLight, fontSize: 20 }}>📷</div>
+        )}
+        <div style={{ flex: 1, display: "flex", gap: 6 }}>
+          <label className="ht-btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
+            {uploading[vkey] ? "Uploading…" : photos[vkey] ? "Change" : "Upload photo"}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              disabled={uploading[vkey]}
+              onChange={e => { handlePhotoUpload(vkey, e.target.files?.[0]); e.target.value = ""; }}
+            />
+          </label>
+          {photos[vkey] && (
+            <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => removePhoto(vkey)}>Remove</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // PLAN MENU EDITOR (owner) — feed just the sabjis + rice/salad/raita/sweet
 // for the day, and Homely Gold / Standard / Mini publish themselves
@@ -3762,105 +3876,6 @@ function PlanMenuEditor({ planConfig, onSave }) {
 
   const isPublishedToday = planConfig && planConfig.date === todayStr();
 
-  // Small reusable toggle switch (used for Gold's two independent size toggles)
-  const ToggleSwitch = ({ on, onClick, label }) => (
-    <button
-      onClick={onClick}
-      style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: on ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
-      aria-label={label}
-    >
-      <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
-    </button>
-  );
-
-  // Homely Gold: shares one photo, but Medium/Large have independent
-  // availability toggles so one size can sell out while the other stays live.
-  const GoldAvailabilityBlock = () => (
-    <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 10 }}>✨ Homely Gold</div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Medium</div>
-          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled.goldMedium ? "Available for customers" : "Hidden — stocked out"}</div>
-        </div>
-        <ToggleSwitch on={!!enabled.goldMedium} onClick={() => toggleEnabled("goldMedium")} label="Toggle Homely Gold Medium" />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Large</div>
-          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled.goldLarge ? "Available for customers" : "Hidden — stocked out"}</div>
-        </div>
-        <ToggleSwitch on={!!enabled.goldLarge} onClick={() => toggleEnabled("goldLarge")} label="Toggle Homely Gold Large" />
-      </div>
-      {/* Photo strip — shared between both sizes */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {photos.gold ? (
-          <img src={photos.gold} alt="Homely Gold preview" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
-        ) : (
-          <div style={{ width: 60, height: 60, borderRadius: 8, background: C.cream, border: `1px dashed ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLight, fontSize: 20 }}>📷</div>
-        )}
-        <div style={{ flex: 1, display: "flex", gap: 6 }}>
-          <label className="ht-btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
-            {uploading.gold ? "Uploading…" : photos.gold ? "Change" : "Upload photo"}
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              disabled={uploading.gold}
-              onChange={e => { handlePhotoUpload("gold", e.target.files?.[0]); e.target.value = ""; }}
-            />
-          </label>
-          {photos.gold && (
-            <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => removePhoto("gold")}>Remove</button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  // Reusable per-variant availability & photo row
-  const VariantAvailabilityRow = ({ vkey, label }) => (
-    <div style={{ padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{label}</div>
-          <div style={{ fontSize: 11, color: C.inkLight }}>{enabled[vkey] ? "Available for customers" : "Hidden — stocked out"}</div>
-        </div>
-        {/* Toggle switch */}
-        <button
-          onClick={() => toggleEnabled(vkey)}
-          style={{ position: "relative", width: 46, height: 26, borderRadius: 13, border: "none", background: enabled[vkey] ? "#4CAF50" : "#BDBDBD", cursor: "pointer", transition: "background 0.2s", padding: 0, flexShrink: 0 }}
-          aria-label={`Toggle ${label}`}
-        >
-          <span style={{ position: "absolute", top: 3, left: enabled[vkey] ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, transition: "left 0.2s", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }} />
-        </button>
-      </div>
-      {/* Photo strip */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {photos[vkey] ? (
-          <img src={photos[vkey]} alt={`${label} preview`} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}` }} />
-        ) : (
-          <div style={{ width: 60, height: 60, borderRadius: 8, background: C.cream, border: `1px dashed ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.inkLight, fontSize: 20 }}>📷</div>
-        )}
-        <div style={{ flex: 1, display: "flex", gap: 6 }}>
-          <label className="ht-btn btn-secondary btn-sm" style={{ cursor: "pointer" }}>
-            {uploading[vkey] ? "Uploading…" : photos[vkey] ? "Change" : "Upload photo"}
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              disabled={uploading[vkey]}
-              onChange={e => { handlePhotoUpload(vkey, e.target.files?.[0]); e.target.value = ""; }}
-            />
-          </label>
-          {photos[vkey] && (
-            <button className="ht-btn btn-ghost btn-sm" style={{ color: C.red }} onClick={() => removePhoto(vkey)}>Remove</button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div style={{ padding: "20px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -3928,10 +3943,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
         <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🎛️ Plan Availability &amp; Photos</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Turn a plan off if you're out of stock. Photos are optional — customers see them on the plan cards.</p>
         {uploadErr && <div style={{ background: C.redLight, color: C.red, padding: "6px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{uploadErr}</div>}
-        <GoldAvailabilityBlock />
-        <VariantAvailabilityRow vkey="standard" label="Homely Standard" />
-        <VariantAvailabilityRow vkey="mini"     label="Homely Mini" />
-        <VariantAvailabilityRow vkey="goldMini" label="Homely Gold Mini" />
+        <GoldAvailabilityBlock enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="standard" label="Homely Standard" enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="mini"     label="Homely Mini"     enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
+        <VariantAvailabilityRow vkey="goldMini" label="Homely Gold Mini" enabled={enabled} toggleEnabled={toggleEnabled} photos={photos} uploading={uploading} handlePhotoUpload={handlePhotoUpload} removePhoto={removePhoto} />
 
         {/* Extras (no photo, just toggle) */}
         <div style={{ marginTop: 6, paddingTop: 14, borderTop: `1px dashed ${C.border}` }}>
