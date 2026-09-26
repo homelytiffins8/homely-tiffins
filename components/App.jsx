@@ -226,14 +226,14 @@ function defaultPlanConfig() {
     raita: "",
     sweet: "",
     // gold = Medium price (base). goldLargeSurcharge = flat ₹ added on top for Large.
-    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, raita: 30, salad: 20, sweet: 30 },
+    prices: { gold: 199, goldLargeSurcharge: 76, standard: 120, mini: 80, goldMini: 149, raita: 30, salad: 20, sweet: 30 },
     // Per-variant on/off (owner can hide a plan if stocked out for the day).
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
-    enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, raita: true, salad: true, sweet: true },
+    enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, goldMini: true, raita: true, salad: true, sweet: true },
     // Optional photo per variant, stored as a resized/compressed base64 JPEG
     // data URL. Empty string means "no photo".
-    photos: { gold: "", standard: "", mini: "" },
+    photos: { gold: "", standard: "", mini: "", goldMini: "" },
   };
 }
 
@@ -1332,12 +1332,14 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const isGold = plan === "gold";
   const isStandard = plan === "standard";
   const isMini = plan === "mini";
+  const isGoldMini = plan === "goldMini";
   const [bread, setBread] = useState(BREAD_CHOICES[0].id);
   const [sabjiSel, setSabjiSel] = useState([]); // Gold: up to 2 sabji ids
   const [sweetOrRaita, setSweetOrRaita] = useState("raita");
   const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
   const [standardBase, setStandardBase] = useState("rice"); // "rice" | "chapati"
   const [miniBase, setMiniBase] = useState("chapati"); // "chapati" | "rice"
+  const [goldMiniSabji, setGoldMiniSabji] = useState(sabjis[0]?.id || ""); // Gold Mini: choice of any 1 of all 3 sabjis
 
   // ── Homely Gold flow: two steps ──
   // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
@@ -1360,6 +1362,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 
   const goldValid = sabjiSel.length === 2;
   const miniValid = !!miniSabji;
+  const goldMiniValid = !!goldMiniSabji;
 
   const handleAdd = () => {
     if (isGold) {
@@ -1386,10 +1389,17 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
         ? `Homely Mini (Rice) — Steamed Rice, ${sabji.name}, Standard Salad`
         : `Homely Mini — 4 Chapati, ${sabji.name}, Standard Salad`;
       onAdd(id, name, planConfig.prices.mini);
+    } else if (isGoldMini) {
+      if (!goldMiniValid) return;
+      const sabji = sabjis.find(s => s.id === goldMiniSabji);
+      const sweetRaitaLabel = sweetOrRaita === "raita" ? planConfig.raita : planConfig.sweet;
+      const id = `goldmini:${goldMiniSabji}:${sweetOrRaita}`;
+      const name = `Homely Gold Mini — 4 Ghee Chapati, ${sabji.name}, ${sweetRaitaLabel}, ${planConfig.salad}`;
+      onAdd(id, name, planConfig.prices.goldMini);
     }
   };
 
-  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : "Homely Mini";
+  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : isGoldMini ? "✨ Homely Gold Mini" : "Homely Mini";
   const subtitle = isStandard
     ? "This is what's included — just confirm"
     : isGold
@@ -1589,9 +1599,55 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
           </>
         )}
 
+        {isGoldMini && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>
+                Choose 1 Sabji <span style={{ color: goldMiniValid ? "#2E7D32" : C.inkLight, fontWeight: 700 }}>({goldMiniValid ? "1/1 selected" : "0/1 selected"})</span>
+              </label>
+              {sabjis.map(s => (
+                <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                  <input type="radio" name="goldMiniSabji" checked={goldMiniSabji === s.id} onChange={() => setGoldMiniSabji(s.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                  {s.name} {s.premium && <span style={{ fontSize: 11, color: C.saffron, fontWeight: 700 }}>⭐ Premium</span>}
+                </label>
+              ))}
+              {!goldMiniValid && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "#FDECEA", color: "#B71C1C", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                  ⚠️ Please choose a sabji to continue
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Bread</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                4 Ghee Chapati
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Choose Raita or Sweet</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                <input type="radio" name="sr" checked={sweetOrRaita === "raita"} onChange={() => setSweetOrRaita("raita")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.raita} (Raita)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "pointer" }}>
+                <input type="radio" name="sr" checked={sweetOrRaita === "sweet"} onChange={() => setSweetOrRaita("sweet")} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.sweet} (Sweet)
+              </label>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>Salad for the Day</label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", fontSize: 14, color: C.ink, cursor: "default" }}>
+                <input type="radio" checked readOnly style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                {planConfig.salad}
+              </label>
+            </div>
+          </>
+        )}
+
         <button
           className="ht-btn btn-primary btn-full btn-lg"
-          disabled={isGold ? (goldStep === "build" ? !goldValid : false) : isMini ? !miniValid : false}
+          disabled={isGold ? (goldStep === "build" ? !goldValid : false) : isMini ? !miniValid : isGoldMini ? !goldMiniValid : false}
           onClick={() => {
             if (isGold && goldStep === "build") {
               if (!goldValid) return;
@@ -1607,7 +1663,9 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
             ? "Continue → Choose Size"
             : isMini && !miniValid
             ? "Choose a sabji to continue"
-            : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : planConfig.prices.mini}`}
+            : isGoldMini && !goldMiniValid
+            ? "Choose a sabji to continue"
+            : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : isGoldMini ? planConfig.prices.goldMini : planConfig.prices.mini}`}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Cancel</button>
       </div>
@@ -2601,7 +2659,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
 
           {/* ── MEAL PLANS: Homely Gold / Standard / Mini ── */}
-          {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini) && (
+          {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini || planConfig.enabled?.goldMini) && (
             <div style={{ marginBottom: 16 }}>
               <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🍽️ Meal Plans</h2>
               <div className="ht-card slide-in" style={{ padding: 0, marginBottom: 10, overflow: "hidden" }}>
@@ -2661,7 +2719,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   </div>
                 )}
                 {planConfig.enabled?.mini && (
-                  <div style={{ padding: "16px 20px" }}>
+                  <div style={{ padding: "16px 20px", borderBottom: planConfig.enabled?.goldMini ? `1px solid ${C.border}` : "none" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
                         <img
@@ -2680,6 +2738,30 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("mini")}>+ Add</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {planConfig.enabled?.goldMini && (
+                  <div style={{ padding: "16px 20px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      {planConfig.photos?.goldMini && (
+                        <img
+                          src={planConfig.photos.goldMini}
+                          alt="Homely Gold Mini"
+                          onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                        />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold Mini</div>
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
+                        <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("goldMini")}>+ Add</button>
                       </div>
                     </div>
                   </div>
@@ -3665,15 +3747,15 @@ function PlanMenuEditor({ planConfig, onSave }) {
       sweet: sweet.trim(),
       prices: {
         gold: prices.gold || 0, goldLargeSurcharge: prices.goldLargeSurcharge || 0,
-        standard: prices.standard || 0, mini: prices.mini || 0,
+        standard: prices.standard || 0, mini: prices.mini || 0, goldMini: prices.goldMini || 0,
         raita: prices.raita || 0, salad: prices.salad || 0, sweet: prices.sweet || 0,
       },
       enabled: {
         goldMedium: !!enabled.goldMedium, goldLarge: !!enabled.goldLarge,
-        standard: !!enabled.standard, mini: !!enabled.mini,
+        standard: !!enabled.standard, mini: !!enabled.mini, goldMini: !!enabled.goldMini,
         raita: !!enabled.raita, salad: !!enabled.salad, sweet: !!enabled.sweet,
       },
-      photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "" },
+      photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "", goldMini: photos.goldMini || "" },
     });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
@@ -3784,13 +3866,13 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>Today's Plans</h2>
-          <p style={{ fontSize: 13, color: C.inkMid }}>{fmtDate(todayStr())} · Just fill sabjis + extras below — Gold, Standard &amp; Mini update automatically</p>
+          <p style={{ fontSize: 13, color: C.inkMid }}>{fmtDate(todayStr())} · Just fill sabjis + extras below — Gold, Standard, Mini &amp; Gold Mini update automatically</p>
         </div>
       </div>
 
       {!isPublishedToday && (
         <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#8D6E00", fontWeight: 600 }}>
-          ⚠️ Plans not published for today yet — customers won't see Homely Gold/Standard/Mini until you publish.
+          ⚠️ Plans not published for today yet — customers won't see Homely Gold/Standard/Mini/Gold Mini until you publish.
         </div>
       )}
 
@@ -3798,7 +3880,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🥘 Today's Sabjis (exactly 3)</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
-          Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2
+          Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2 · Gold Mini: choice of any 1 of these 3 (incl. Premium)
         </p>
         {sabjis.map((s, i) => (
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -3849,6 +3931,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
         <GoldAvailabilityBlock />
         <VariantAvailabilityRow vkey="standard" label="Homely Standard" />
         <VariantAvailabilityRow vkey="mini"     label="Homely Mini" />
+        <VariantAvailabilityRow vkey="goldMini" label="Homely Gold Mini" />
 
         {/* Extras (no photo, just toggle) */}
         <div style={{ marginTop: 6, paddingTop: 14, borderTop: `1px dashed ${C.border}` }}>
@@ -3894,6 +3977,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Homely Mini ₹</label>
             <input className="ht-input" type="number" value={prices.mini} onChange={e => setPrice("mini", e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Homely Gold Mini ₹</label>
+            <input className="ht-input" type="number" value={prices.goldMini} onChange={e => setPrice("goldMini", e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Raita (standalone) ₹</label>
@@ -4309,6 +4396,16 @@ function parseKotItem(rawName) {
     return {
       title: `Homely Gold — ${size}`,
       sub: [bread, sabjis, raitaSweet, rice, salad].filter(Boolean),
+    };
+  }
+
+  // Homely Gold Mini — bread, sabji, raita/sweet, salad
+  m = name.match(/^Homely Gold Mini — (.+)$/);
+  if (m) {
+    const [bread, sabji, raitaSweet, salad] = m[1].split(", ");
+    return {
+      title: "Homely Gold Mini",
+      sub: [bread, sabji, raitaSweet, salad].filter(Boolean),
     };
   }
 
