@@ -3708,7 +3708,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
   const [prices, setPrices] = useState({ ...defaultPlanConfig().prices, ...(base.prices || {}) });
   const [enabled, setEnabled] = useState({ ...defaultPlanConfig().enabled, ...(base.enabled || {}) });
   const [photos, setPhotos] = useState({ ...defaultPlanConfig().photos, ...(base.photos || {}) });
-  const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false });
+  const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false, goldMini: false });
   const [uploadErr, setUploadErr] = useState("");
   const [saved, setSaved] = useState(false);
 
