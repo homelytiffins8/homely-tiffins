@@ -3032,6 +3032,94 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
         </div>
 
+        {!isStandalone && installPromptEvent && (
+          <button
+            onClick={handleInstallClick}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 12, padding: "9px 16px",
+              background: HC.orange, color: "#fff", border: "none",
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13.5, cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(224,115,26,0.35)",
+            }}
+          >
+            ⬇ Install App
+          </button>
+        )}
+
+        {!isStandalone && !isIOSSafari && !installPromptEvent && showManualInstallHint && !manualHintDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap Chrome's <b>⋮ menu</b> then <b>"Add to Home screen" / "Install app"</b>
+            </div>
+            <button
+              onClick={dismissManualInstallHint}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
+        {!isStandalone && isIOSSafari && !iosBannerDismissed && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 12, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
+            borderRadius: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
+              Install this app: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b>
+            </div>
+            <button
+              onClick={dismissIosBanner}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+
+        {knownPhone && notifStatus === "default" && (
+          <button
+            onClick={handleEnableNotifications}
+            disabled={notifBusy}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 8, padding: "8px 16px",
+              background: "#fff", color: HC.orange, border: `1.5px solid ${HC.orange}`,
+              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+              fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
+              opacity: notifBusy ? 0.6 : 1,
+            }}
+          >
+            {notifBusy ? "Enabling…" : "🔔 Get order updates"}
+          </button>
+        )}
+        {knownPhone && notifStatus === "granted" && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D32", fontWeight: 700 }}>
+            ✓ Order updates enabled
+          </div>
+        )}
+        {notifError && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", maxWidth: 320,
+            background: "#FDECEA", border: "1px solid #D32F2F", borderRadius: 10,
+            fontSize: 12, color: "#B71C1C", lineHeight: 1.4,
+          }}>
+            Couldn't enable notifications: {notifError}
+          </div>
+        )}
       </div>
 
       {/* ═══════ SECTION 2 — HERO ═══════ */}
