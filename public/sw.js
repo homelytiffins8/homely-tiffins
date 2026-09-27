@@ -32,7 +32,13 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      // Android's status-bar icon is NOT the full-color app icon above — it
+      // is a separate "badge" that Android renders by tinting ONLY the
+      // alpha channel (color is discarded entirely). Reusing the detailed
+      // full-color icon here is why it was showing as a blank white square:
+      // Android couldn't derive a usable silhouette from it. badge-96.png
+      // is a purpose-made plain white shape on a transparent background.
+      badge: "/badge-96.png",
       data: { url: data.url || "/" },
     })
   );
