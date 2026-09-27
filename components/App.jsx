@@ -2236,7 +2236,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     };
   }, []);
   const handleInstallClick = async () => {
-    if (!installPromptEvent) return;
+    if (!installPromptEvent) { if (isIOSSafari) { setIosBannerDismissed(false); return; } setManualHintDismissed(false); setShowManualInstallHint(true); return; }
     installPromptEvent.prompt();
     await installPromptEvent.userChoice;
     // The captured event can only be used once — clear it either way.
@@ -3032,7 +3032,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
         </div>
 
-        {!isStandalone && installPromptEvent && (
+        {!isStandalone && (
           <button
             onClick={handleInstallClick}
             style={{
