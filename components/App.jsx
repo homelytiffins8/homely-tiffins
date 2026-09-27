@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
-const SUPABASE_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
+const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
+const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────
@@ -466,6 +466,43 @@ async function loadOrdersByPhoneFromTable(phone) {
     if (error) { notifyStorageError("load", "orders(by phone)", error); return null; }
     return (data || []).map(rowToOrder);
   } catch (err) { notifyStorageError("load", "orders(by phone)", err); return null; }
+}
+
+// ── Auto-expire stale orders ──
+// An order the owner never acts on (phone off, busy kitchen, missed
+// notification, or one stranded by the midnight today/history rollover)
+// would otherwise sit unresolved forever — invisible once its date rolls
+// out of "today", but still showing as "running" on the customer's
+// tracking page with no way to close it. If an order has gone more than
+// STALE_ORDER_MS without reaching a terminal status, resolve it
+// automatically: a still-pending order was never accepted, so reject it;
+// anything further along (preparing/ready/dispatched) is assumed to have
+// gone out, so mark it delivered. Runs as two direct table updates,
+// filtered by created_at, so it catches orders regardless of which
+// calendar date they're stamped with.
+const STALE_ORDER_MS = 4 * 60 * 60 * 1000;
+async function expireStaleOrders() {
+  const cutoff = new Date(Date.now() - STALE_ORDER_MS).toISOString();
+  try {
+    const [rejectRes, deliverRes] = await Promise.all([
+      supabase.from("orders")
+        .update({ status: "rejected" })
+        .eq("status", "pending")
+        .lt("created_at", cutoff)
+        .select("*"),
+      supabase.from("orders")
+        .update({ status: "delivered", delivered_at: new Date().toISOString() })
+        .in("status", ["preparing", "ready", "dispatched"])
+        .lt("created_at", cutoff)
+        .select("*"),
+    ]);
+    if (rejectRes.error) notifyStorageError("save", "orders(auto-reject)", rejectRes.error);
+    if (deliverRes.error) notifyStorageError("save", "orders(auto-deliver)", deliverRes.error);
+    return [...(rejectRes.data || []), ...(deliverRes.data || [])].map(rowToOrder);
+  } catch (err) {
+    notifyStorageError("save", "orders(auto-expire)", err);
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -4598,7 +4635,7 @@ function printKOT(order) {
 function OrderCard({ order, onAdvance, onReject, now }) {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const next = STATUS_FLOW[order.status];
-  const canReject = order.status === "pending" || order.status === "preparing" || order.status === "ready";
+  const canReject = order.status === "pending" || order.status === "preparing" || order.status === "ready" || order.status === "dispatched";
   const hasInstructions = order.specialInstructions && order.specialInstructions.trim().length > 0;
   const isActive = order.status !== "rejected" && order.status !== "delivered";
 
@@ -6677,7 +6714,26 @@ function NotifyCenter() {
 
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
-  const pendingCount = todayOrders.filter(o => o.status === "pending").length;
+
+  // "todayOrders" is filtered by the order's `date` field, which is stamped
+  // once at creation and never updated. An order placed just before
+  // midnight IST that's still pending/preparing/ready/dispatched when the
+  // date rolls over falls out of todayOrders (and into ordersHistory)
+  // instantly — vanishing from the owner's Orders tab even though it's
+  // still live and the customer app still shows it as running. Fold any
+  // still-active order from history back in here so the dashboard always
+  // shows every order that hasn't reached a terminal status, regardless of
+  // which calendar date it was created on.
+  const dashboardOrders = useMemo(() => {
+    const stillActive = (ordersHistory || []).filter(
+      o => o.status !== "delivered" && o.status !== "rejected"
+    );
+    const map = new Map();
+    [...(todayOrders || []), ...stillActive].forEach(o => { if (o && o.id) map.set(o.id, o); });
+    return Array.from(map.values());
+  }, [todayOrders, ordersHistory]);
+
+  const pendingCount = dashboardOrders.filter(o => o.status === "pending").length;
   const creditAlert = credit.filter(c => c.entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0) > 0).length;
   const unreadContactCount = (contactMessages || []).filter(m => !m.read).length;
   const tabs = [
@@ -6789,7 +6845,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         ))}
       </div>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "0 16px 40px" }}>
-        {tab === "orders"    && <OrderDashboard todayOrders={todayOrders} onAdvance={onAdvanceOrder} onReject={onRejectOrder} />}
+        {tab === "orders"    && <OrderDashboard todayOrders={dashboardOrders} onAdvance={onAdvanceOrder} onReject={onRejectOrder} />}
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
@@ -7233,6 +7289,31 @@ export default function App() {
     const id = setInterval(() => { catchUpSync(); }, 20000);
     return () => clearInterval(id);
   }, [loaded, route, ownerAuthed, catchUpSync]);
+
+  // ── Auto-expire stale orders ──
+  // Runs the 4-hour sweep (see expireStaleOrders above) on an interval
+  // while the owner dashboard is open. Writes need the owner's
+  // authenticated session (RLS blocks anon writes to `orders`), so this
+  // only runs there — same gating as the polling safety net above. The
+  // existing `orders` realtime subscription already reloads todayOrders/
+  // ordersHistory whenever a row changes, so no manual state merge is
+  // needed here; this just needs to fire the writes and notify affected
+  // customers.
+  useEffect(() => {
+    if (!loaded || !(route === "owner" && ownerAuthed)) return;
+    const run = async () => {
+      const changed = await expireStaleOrders();
+      changed.forEach(o => {
+        const msg = o.status === "rejected"
+          ? "Sorry — your order couldn't be accepted today. Please call us for details."
+          : "Delivered! Enjoy your meal 🍱";
+        sendOrderStatusPush(o.phone, "Homely Tiffins", msg);
+      });
+    };
+    run();
+    const id = setInterval(run, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [loaded, route, ownerAuthed]);
 
   // ── New order alert sound ──
   useOrderAlert(todayOrders, route === "owner" && ownerAuthed);
