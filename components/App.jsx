@@ -2149,7 +2149,7 @@ const ScooterIcon = ({ s = 28, c = "#fff" }) => (
 );
 // Long arrow flanking TIFFINS (points inward toward the word)
 const ArrowLong = ({ flip }) => (
-  <svg width="54" height="12" viewBox="0 0 54 12" fill="none" style={{ transform: flip ? "scaleX(-1)" : "none" }} aria-hidden>
+  <svg width="65" height="14.4" viewBox="0 0 54 12" fill="none" style={{ transform: flip ? "scaleX(-1)" : "none" }} aria-hidden>
     <path d="M2 6h42M38 1.5l7 4.5-7 4.5" stroke={HC.orange} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
@@ -3050,20 +3050,20 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           <div>
             <div style={{
               fontFamily: "'Playfair Display', Georgia, serif",
-              fontWeight: 800, fontSize: 34, letterSpacing: 5,
+              fontWeight: 800, fontSize: 40.8, letterSpacing: 6,
               color: HC.brown, lineHeight: 1,
             }}>HOMELY</div>
             <div style={{
               display: "flex", alignItems: "center", gap: 8, marginTop: 4,
               fontFamily: "'Playfair Display', Georgia, serif",
-              fontWeight: 700, fontSize: 13, letterSpacing: 6,
+              fontWeight: 700, fontSize: 15.6, letterSpacing: 7.2,
               color: HC.orangeDeep,
             }}>
               <ArrowLong />TIFFINS<ArrowLong flip />
             </div>
             <div style={{
               fontFamily: "'Dancing Script', cursive",
-              fontWeight: 700, fontSize: 16, color: HC.orange, marginTop: 4, lineHeight: 1,
+              fontWeight: 700, fontSize: 19.2, color: HC.orange, marginTop: 4, lineHeight: 1,
             }}>Ghar Se Door, Ghar Ka Bharosa.</div>
             <div style={{ marginTop: 2 }}><HeartIcon s={11} c={HC.orange} /></div>
           </div>
