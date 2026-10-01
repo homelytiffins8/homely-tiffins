@@ -3063,8 +3063,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
             <div style={{
               fontFamily: "'Dancing Script', cursive",
-              fontWeight: 700, fontSize: 22, color: HC.orange, marginTop: 4, lineHeight: 1,
-            }}>Ghar jaisa. Better.</div>
+              fontWeight: 700, fontSize: 16, color: HC.orange, marginTop: 4, lineHeight: 1,
+            }}>Ghar Se Door, Ghar Ka Bharosa.</div>
             <div style={{ marginTop: 2 }}><HeartIcon s={11} c={HC.orange} /></div>
           </div>
         </div>
