@@ -1711,7 +1711,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
 }
 
 // ─────────────────────────────────────────────
-// COMPLETE YOUR MEAL MODAL (customer) — shown right after a thali plan
+// COMPLETE YOUR MEAL MODAL (customer) — shown when the customer taps Proceed to Order
 // (Homely Gold / Standard / Mini / Gold Mini) is added to the cart, as a
 // gentle nudge toward Today's Extras. Entirely optional: the extras use
 // the same shared cart +/- steppers as the main menu list, so nothing is
@@ -2538,9 +2538,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     setPlanCartMeta(prev => ({ ...prev, [id]: { name, price } }));
     setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     setPlanChoiceModal(null);
-    // Nudge toward Today's Extras right after a plan is added — optional,
-    // only shown if the owner actually has extras live today.
-    if (extraItems.length > 0) setShowExtrasPrompt(true);
+    // Just close the dialog so the customer can add more variants; the extras
+    // nudge now appears when they tap "Proceed to Order" instead.
   };
 
   const handleConfirmOrder = (order) => {
@@ -2974,7 +2973,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                 <div style={{ fontSize: 13, color: C.inkMid }}>{cartCount} item{cartCount > 1 ? "s" : ""}</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>₹{cartTotal}</div>
               </div>
-              <button className="ht-btn btn-primary btn-lg" onClick={() => setShowModal(true)}>
+              <button className="ht-btn btn-primary btn-lg" onClick={() => (extraItems.length > 0 ? setShowExtrasPrompt(true) : setShowModal(true))}>
                 Proceed to Order →
               </button>
             </div>
