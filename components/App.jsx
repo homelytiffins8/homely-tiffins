@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard } from "./CustomerHub";
+import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard, PreferenceAutoPrompt } from "./CustomerHub";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -2404,6 +2404,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [showRatingModal, setShowRatingModal] = useState(false);
   // Poll popup: holds the just-placed order while the poll modal is shown.
   const [pollOrder, setPollOrder] = useState(null);
+  // Food-preference form that opens over the order page after each order until it is saved.
+  // prefTick makes the reminder card re-check once the form is closed.
+  const [prefPromptOrderId, setPrefPromptOrderId] = useState(null);
+  const [prefTick, setPrefTick] = useState(0);
 
   // Read remembered phone on mount (no-op if browser storage isn't available)
   useEffect(() => {
@@ -2551,6 +2555,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     setCart({});
     setPlanCartMeta({});
     setSpecialInstructions("");
+    setPrefPromptOrderId(order.id);
     // Remember this customer's phone on the device so we can prompt them for
     // a rating on their next visit. Silently ignored if storage isn't available.
     try {
@@ -2617,6 +2622,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       (nowTick - new Date(live.createdAt).getTime()) > 15 * 60 * 1000;
     return (
       <div style={{ minHeight: "100vh", background: C.cream, padding: "24px 16px" }}>
+        {/* Opens the food-preference form over this page after an order, until the customer saves it */}
+        {prefPromptOrderId === live.id && (
+          <PreferenceAutoPrompt supabase={supabase} C={C} orderId={live.id}
+            onClose={() => { setPrefPromptOrderId(null); setPrefTick(t => t + 1); }} />
+        )}
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>🍱</div>
@@ -2684,7 +2694,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           )}
 
           {/* Optional food-preference form (order confirmation page) */}
-          {!isRejected && <PreferencePromoCard supabase={supabase} C={C} orderId={live.id} />}
+          {!isRejected && <PreferencePromoCard supabase={supabase} C={C} orderId={live.id} recheck={prefTick} />}
 
           {/* Refer a friend — show customer's own referral code so they can share it */}
           {!isRejected && referralConfig && referralConfig.enabled !== false && getReferralCode(live.phone) && (

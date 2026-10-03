@@ -1356,7 +1356,7 @@ function FormRadios({ field, options, a, setA }) {
     </div>
   );
 }
-export function PreferenceFormPage({ supabase, C = DEFAULT_C, token }) {
+export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
   const [state, setState] = useState("loading"); // loading | invalid | form | saved | skipped
   const [data, setData] = useState(null);
   const [a, setA] = useState({}); const [init, setInit] = useState({});
@@ -1396,19 +1396,22 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token }) {
       </div>
     </ThemeCtx.Provider>
   );
-  const home = () => { window.location.hash = ""; };
+  // onDone is set when the form is shown over the order page right after an order:
+  // skip and save then return to that page instead of the menu.
+  const home = () => { if (onDone) onDone(); else window.location.hash = ""; };
+  const backLabel = onDone ? "Back to my order" : "Back to menu";
 
   if (state === "loading") return shell(<Busy />);
   if (state === "invalid") return shell(
     <Card><h2 style={{ fontSize: 17, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>This link isn't working</h2>
       <p style={{ fontSize: 13.5, color: C.inkMid, lineHeight: 1.55 }}>It may have expired or been replaced. You can open the form again from the order page in the app, or ask us for a new link. Ordering works as usual.</p>
-      <button className="ht-btn btn-primary btn-full" style={{ marginTop: 12 }} onClick={home}>Go to menu</button></Card>);
+      <button className="ht-btn btn-primary btn-full" style={{ marginTop: 12 }} onClick={home}>{onDone ? "Back to my order" : "Go to menu"}</button></Card>);
   if (state === "saved" || state === "skipped") return shell(
     <Card style={{ textAlign: "center" }}>
       <div style={{ fontSize: 34 }}>{state === "saved" ? "🙏" : "👍"}</div>
       <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, margin: "6px 0" }}>{state === "saved" ? "Thank you!" : "No problem"}</h2>
       <p style={{ fontSize: 13.5, color: C.inkMid, lineHeight: 1.55 }}>{state === "saved" ? "Your preferences are saved. You can come back to this same link any time to change them." : "You can fill this in later using the link on your order page."}</p>
-      <button className="ht-btn btn-primary btn-full" style={{ marginTop: 12 }} onClick={home}>Back to menu</button>
+      <button className="ht-btn btn-primary btn-full" style={{ marginTop: 12 }} onClick={home}>{backLabel}</button>
     </Card>);
 
   const Chips = FormChips; const Radios = FormRadios; const Q = FormQ;
@@ -1426,7 +1429,11 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token }) {
     } catch (e) { setErr(e); }
     setSaving(false);
   };
-  const skip = async () => { try { await callRpc(supabase, "pref_form_skip", { p_token: token }); } catch { /* skipping must never fail */ } setState("skipped"); };
+  const skip = async () => {
+    try { await callRpc(supabase, "pref_form_skip", { p_token: token }); } catch { /* skipping must never fail */ }
+    if (onDone) { onDone(); return; }
+    setState("skipped");
+  };
   const obs = data.observed || {};
   const confFav = [...(a.fav_dishes || []), ...(a.fav_sides || [])].map(x => x.toLowerCase());
   const obsAll = [...(obs.mains || []), ...(obs.sides || [])];
@@ -1468,9 +1475,19 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token }) {
 // ═════════════════════════════════════════════════════════════
 // CUSTOMER-FACING: ENTRY CARD (order confirmation + account area)
 // ═════════════════════════════════════════════════════════════
-export function PreferencePromoCard({ supabase, C = DEFAULT_C, orderId, style }) {
+export function PreferencePromoCard({ supabase, C = DEFAULT_C, orderId, style, recheck }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(null); const [hidden, setHidden] = useState(false);
-  if (!orderId || hidden) return null;
+  const [done, setDone] = useState(false);
+  // Once the customer has saved the form, the card never shows again.
+  useEffect(() => {
+    if (!orderId) return;
+    let live = true;
+    callRpc(supabase, "pref_form_status_for_order", { p_order_id: orderId })
+      .then(r => { if (live && r && r.ok && r.completed) setDone(true); })
+      .catch(() => { /* if the check fails, keep showing the card */ });
+    return () => { live = false; };
+  }, [supabase, orderId, recheck]);
+  if (!orderId || hidden || done) return null;
   const open = async () => {
     setBusy(true); setErr(null);
     try {
@@ -1488,6 +1505,42 @@ export function PreferencePromoCard({ supabase, C = DEFAULT_C, orderId, style })
         <button className="ht-btn btn-primary btn-sm" disabled={busy} onClick={open}>{busy ? "Opening…" : "Open the form"}</button>
         <button className="ht-btn btn-ghost btn-sm" onClick={() => setHidden(true)}>Not now</button>
       </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// CUSTOMER-FACING: AUTO-OPEN AFTER AN ORDER
+// Opens the form over the order page once an order is placed, until the
+// customer has saved it. Skipping closes it; it opens again after their next
+// order. Never blocks ordering: any failure just closes it quietly.
+// ═════════════════════════════════════════════════════════════
+export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose }) {
+  const [token, setToken] = useState(null);
+  useEffect(() => {
+    if (!orderId) { onClose(); return; }
+    let live = true;
+    (async () => {
+      // The order reaches the database a moment after it is placed, so retry briefly.
+      for (let i = 0; i < 6 && live; i++) {
+        try {
+          const s = await callRpc(supabase, "pref_form_status_for_order", { p_order_id: orderId });
+          if (s && s.ok) {
+            if (s.completed) { if (live) onClose(); return; }
+            const t = await callRpc(supabase, "pref_form_token_for_order", { p_order_id: orderId });
+            if (t && t.ok) { if (live) setToken(t.token); return; }
+          }
+        } catch { /* try again */ }
+        await new Promise(res => setTimeout(res, 1500));
+      }
+      if (live) onClose();
+    })();
+    return () => { live = false; };
+  }, [supabase, orderId]);
+  if (!token) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 3000, overflowY: "auto", background: C.cream }} data-testid="pref-auto">
+      <PreferenceFormPage supabase={supabase} C={C} token={token} onDone={onClose} />
     </div>
   );
 }
