@@ -29,7 +29,6 @@ const VARIANT_LABEL = {
   mini: "Homely Mini", standard: "Homely Standard", goldMini: "Homely Gold Mini",
   goldMedium: "Homely Gold (Medium)", goldLarge: "Homely Gold (Large)", extra: "Extras only", unknown: "Unknown",
 };
-const CONSENT_LABEL = { unknown: "Unknown", opted_in: "Opted in", opted_out: "Opted out" };
 const SOURCE_LABEL = {
   staff: "Staff", customer_form_staff_link: "Customer form (link shared by staff)",
   customer_form_order_link: "Customer form (from order page)", merge: "Carried over by merge",
@@ -101,7 +100,6 @@ function Pill({ children, tone = "neutral", style }) {
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: bg, color: fg, border: `1px solid ${bd}`, whiteSpace: "nowrap", ...style }}>{children}</span>;
 }
 const bucketTone = (b) => b === "active_0_6" ? "green" : b === "inactive_7_13" ? "amber" : b === "inactive_14_plus" ? "red" : "neutral";
-const consentTone = (c) => c === "opted_in" ? "green" : c === "opted_out" ? "red" : "amber";
 function Stat({ label, value, sub }) {
   const C = useC();
   return (
@@ -368,7 +366,6 @@ function CustomerProfile({ supabase, id, onBack, onOpen }) {
           </div>
           <div style={{ textAlign: "right" }}>
             <Pill tone={bucketTone(s.bucket)}>{BUCKET_LABEL[s.bucket]}</Pill>
-            <div style={{ marginTop: 6 }}><Pill tone={consentTone(s.consent)}>WhatsApp offers: {CONSENT_LABEL[s.consent]}</Pill></div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
@@ -388,14 +385,12 @@ function CustomerProfile({ supabase, id, onBack, onOpen }) {
       </Card>
 
       {p.errors?.length > 0 && <Note tone="error"><strong>Processing errors for this customer:</strong>{p.errors.map(e => <div key={e.id}>• {e.context}: {e.error}</div>)}</Note>}
-      {s.consent_needs_review && <Note tone="warn"><strong>Consent needs review.</strong> {s.consent_review_reason}</Note>}
       {s.complaints > 0 && <Note tone="error"><strong>{s.complaints} unresolved complaint(s)</strong> — resolve before sending any promotional message.</Note>}
 
       <Overview p={p} />
       <PatternCard s={s} />
       <DishAnalysis p={p} />
       <PreferencesCard p={p} catalog={catalog} act={act} busy={busy} />
-      <ConsentCard p={p} act={act} busy={busy} />
       <FeedbackCard p={p} act={act} busy={busy} />
       <NotesCard p={p} act={act} busy={busy} />
       <ContactCard p={p} act={act} busy={busy} />
@@ -691,34 +686,6 @@ function DatePref({ field, value, meta, act, busy, custId }) {
   );
 }
 
-// ── consent ──
-function ConsentCard({ p, act, busy }) {
-  const C = useC(); const s = p.summary; const [note, setNote] = useState("");
-  return (
-    <Card>
-      <H sub="Promotional WhatsApp permission. Never required to order. Opted-out customers are excluded from promotional lists.">WhatsApp marketing permission</H>
-      <div style={{ fontSize: 13, color: C.inkMid, marginBottom: 8 }}>
-        Current: <Pill tone={consentTone(s.consent)}>{CONSENT_LABEL[s.consent]}</Pill>
-        {s.consent_at && <span style={{ marginLeft: 8, fontSize: 12 }}>{SOURCE_LABEL[s.consent_source] || s.consent_source} · {fmtTs(s.consent_at)}</span>}
-      </div>
-      <input className="ht-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Note (e.g. told us on a call)" style={{ marginBottom: 8 }} />
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {[["opted_in", "Opted in"], ["opted_out", "Opted out"], ["unknown", "Unknown"]].map(([v, l]) => (
-          <button key={v} disabled={busy || s.consent === v} className="ht-btn btn-secondary btn-sm" onClick={() => { act("staff_set_consent", { p_customer: s.id, p_status: v, p_note: note || null }, "Consent recorded"); setNote(""); }}>Mark {l}</button>
-        ))}
-      </div>
-      <details style={{ marginTop: 8, fontSize: 12, color: C.inkMid }}>
-        <summary style={{ cursor: "pointer", fontWeight: 700 }}>Consent history ({(p.consent_log || []).length})</summary>
-        {(p.consent_log || []).map(l => (
-          <div key={l.id} style={{ padding: "5px 0", borderTop: `1px solid ${C.border}` }}>
-            <strong>{CONSENT_LABEL[l.status]}</strong> — {SOURCE_LABEL[l.source]} · {l.captured_by} · {fmtTs(l.captured_at)}{l.note ? ` · ${l.note}` : ""}
-          </div>
-        ))}
-      </details>
-    </Card>
-  );
-}
-
 // ── feedback & complaints ──
 function FeedbackCard({ p, act, busy }) {
   const C = useC(); const s = p.summary;
@@ -933,15 +900,14 @@ function MergeDialog({ pair, supabase, onClose, onDone }) {
   };
   if (result) return (
     <Sheet title="Merged" onClose={() => { onDone(into.id); onClose(); }}>
-      <Note>Merge complete. Orders, preferences, feedback, notes, contact history and consent history are all preserved and now appear on one profile; an audit record was written.</Note>
-      <div style={{ fontSize: 13, color: C.inkMid }}>Consent after merge: <strong>{CONSENT_LABEL[result.consent_final]}</strong>{result.consent_review && " — flagged for review because the records disagreed."}</div>
+      <Note>Merge complete. Orders, preferences, feedback, notes, and contact history are all preserved and now appear on one profile; an audit record was written.</Note>
       {result.preference_conflicts?.length > 0 && <Note tone="warn">Preferences that differed (the surviving record's value was kept): {result.preference_conflicts.map(c => FIELD_LABEL[c.field]).join(", ")}.</Note>}
       <button className="ht-btn btn-primary btn-full" onClick={() => { onDone(into.id); onClose(); }}>Open merged profile</button>
     </Sheet>
   );
   return (
     <Sheet title="Review & merge" onClose={onClose}>
-      <Note tone="warn">Matching names or phone numbers are only hints — merge only if you are sure these are the same person. Nothing is deleted: every order, preference, note, consent record and contact entry is kept and the merge is logged.</Note>
+      <Note tone="warn">Matching names or phone numbers are only hints — merge only if you are sure these are the same person. Nothing is deleted: every order, preference, note and contact entry is kept and the merge is logged.</Note>
       <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 8 }}>Why flagged: {pair.reason}</div>
       {[["a", a, pair.a_tower, pair.a_flat, pair.a_last], ["b", b, pair.b_tower, pair.b_flat, pair.b_last]].map(([k, x, t, f, last]) => (
         <label key={k} style={{ display: "flex", gap: 8, padding: 10, border: `2px solid ${keep === k ? C.saffron : C.border}`, borderRadius: 10, marginBottom: 8, cursor: "pointer", background: keep === k ? "#FFF6EC" : C.white }}>
@@ -949,7 +915,7 @@ function MergeDialog({ pair, supabase, onClose, onDone }) {
           <div style={{ fontSize: 13 }}><strong>Keep: {x.name || "(no name)"}</strong><div style={{ color: C.inkMid }}>{x.phone} · {t || "tower ?"}{f ? `, ${f}` : ""} · {x.orders ?? 0} delivered · last {fmtD(last)}</div></div>
         </label>
       ))}
-      <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 8 }}>“{from.name || from.phone}” will be merged into “{into.name || into.phone}”. If the two records disagree on WhatsApp consent, the more cautious value is applied and the profile is flagged for review.</div>
+      <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 8 }}>“{from.name || from.phone}” will be merged into “{into.name || into.phone}”.</div>
       <Field label="Reason (required)"><input className="ht-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. same person, new number" /></Field>
       {err && <ErrorBox error={err} />}
       <button className="ht-btn btn-danger btn-full" disabled={busy || reason.trim().length < 3} onClick={go}>{busy ? "Merging…" : "Confirm merge"}</button>
@@ -1047,7 +1013,7 @@ function DishCatalog({ supabase, onChanged }) {
 function Reactivation({ supabase, data, onOpen, onChanged }) {
   const C = useC();
   const all = data.customers || [];
-  const [f, setF] = useState({ bucket: "both", society: "", tower: "", freq: "any", minOrders: "", minSpend: "", fav: "", top: "", variant: "", slot: "", missingForm: false, consent: "exclude_out", complaints: false, deferred: "any", showAll: false });
+  const [f, setF] = useState({ bucket: "both", society: "", tower: "", freq: "any", minOrders: "", minSpend: "", fav: "", top: "", variant: "", slot: "", missingForm: false, complaints: false, deferred: "any", showAll: false });
   const [showFilters, setShowFilters] = useState(false);
   const [draft, setDraft] = useState(null);
   const [logFor, setLogFor] = useState(null);
@@ -1082,20 +1048,12 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
     if (f.variant && c.usual_variant !== f.variant) return false;
     if (f.slot && slotOf(c) !== f.slot) return false;
     if (f.missingForm && c.form_status !== "none") return false;
-    if (f.consent === "exclude_out" && c.consent === "opted_out") return false;
-    if (["opted_in", "unknown", "opted_out"].includes(f.consent) && c.consent !== f.consent) return false;
     if (f.complaints && !(c.complaints > 0)) return false;
     if (f.deferred === "only" && !deferred(c)) return false;
     if (f.deferred === "hide" && deferred(c)) return false;
     return true;
   }).sort((a, b) => (a.suggestion?.priority ?? 99) - (b.suggestion?.priority ?? 99) || b.net_spend - a.net_spend), [all, f]);
 
-  const excludedOptOut = all.filter(c => (c.bucket === "inactive_7_13" || c.bucket === "inactive_14_plus") && c.consent === "opted_out").length;
-  const groups = [
-    ["Opted in to WhatsApp offers", filtered.filter(c => c.consent === "opted_in")],
-    ["Consent unknown — review before sending promotions", filtered.filter(c => c.consent === "unknown")],
-    ["Opted out — no promotions", filtered.filter(c => c.consent === "opted_out")],
-  ];
   const neverOrdered = all.filter(c => c.bucket === "no_delivered").length;
 
   const card = (c) => {
@@ -1111,7 +1069,6 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
           <Pill tone={bucketTone(c.bucket)}>{c.days_since}d</Pill>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-          <Pill tone={consentTone(c.consent)}>{CONSENT_LABEL[c.consent]}</Pill>
           {c.complaints > 0 && <Pill tone="red">{c.complaints} unresolved complaint{c.complaints > 1 ? "s" : ""}</Pill>}
           {c.form_status === "none" && <Pill>no preference form</Pill>}
           {(c.confirmed?.fav_dishes?.value || []).slice(0, 2).map(x => <Pill key={x.label} tone="green">Confirmed fav: {x.label}</Pill>)}
@@ -1123,7 +1080,7 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
           <div style={{ color: C.inkMid, marginTop: 2, lineHeight: 1.45 }}>{s.reason}</div>
         </div>
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-          {s.draft && c.consent !== "opted_out" && <button className="ht-btn btn-secondary btn-sm" onClick={() => setDraft(c)}>✍️ Message draft</button>}
+          {s.draft && <button className="ht-btn btn-secondary btn-sm" onClick={() => setDraft(c)}>✍️ Message draft</button>}
           <button className="ht-btn btn-secondary btn-sm" onClick={() => setLogFor({ c, msg: "" })}>Log contact</button>
           <button className="ht-btn btn-ghost btn-sm" onClick={() => onOpen(c.id)}>Open profile</button>
         </div>
@@ -1160,7 +1117,6 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
             {sel("top", "Most delivered / frequently selected", opts.top, "Any dish or side")}
             <Field label="Usual variant"><select className="ht-select" value={f.variant} onChange={e => set("variant", e.target.value)}><option value="">Any</option>{opts.variants.map(v => <option key={v} value={v}>{VARIANT_LABEL[v] || v}</option>)}</select></Field>
             <Field label="Meal slot (inferred)"><select className="ht-select" value={f.slot} onChange={e => set("slot", e.target.value)}><option value="">Any</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option></select></Field>
-            <Field label="Marketing permission"><select className="ht-select" value={f.consent} onChange={e => set("consent", e.target.value)}><option value="exclude_out">All except opted-out</option><option value="opted_in">Opted in</option><option value="unknown">Unknown</option><option value="opted_out">Opted out</option></select></Field>
             <Field label="Away / follow-up set"><select className="ht-select" value={f.deferred} onChange={e => set("deferred", e.target.value)}><option value="any">Show all</option><option value="hide">Hide deferred</option><option value="only">Only deferred</option></select></Field>
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, color: C.ink, marginTop: 8 }}><input type="checkbox" checked={f.missingForm} onChange={e => set("missingForm", e.target.checked)} /> Missing preference form</label>
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, color: C.ink, marginTop: 8 }}><input type="checkbox" checked={f.complaints} onChange={e => set("complaints", e.target.checked)} /> Unresolved complaints</label>
@@ -1171,15 +1127,10 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
         {data.next_menu?.date
           ? <>Dish matches use the published menu for <strong>{fmtD(data.next_menu.date)}</strong>: {(data.next_menu.dishes || []).map(d => d.name).join(", ")}.</>
           : <>No published menu exists for today or later, so dish-based reminders can't be matched yet.</>}
-        {" "}Nothing is sent automatically — drafts are copy-only. {excludedOptOut > 0 && `${excludedOptOut} opted-out customer(s) are excluded from promotional lists.`} {neverOrdered > 0 && `${neverOrdered} customer(s) have never had a delivered order and are listed only under Customers.`}
+        {" "}Nothing is sent automatically — drafts are copy-only. {neverOrdered > 0 && `${neverOrdered} customer(s) have never had a delivered order and are listed only under Customers.`}
       </Note>
       {filtered.length === 0 && <Busy text="No inactive customers match these filters." />}
-      {groups.map(([title, list]) => list.length > 0 && (
-        <div key={title}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, margin: "12px 0 6px" }}>{title} ({list.length})</div>
-          {list.map(card)}
-        </div>
-      ))}
+      {filtered.map(card)}
       {draft && <DraftSheet c={draft} onClose={() => setDraft(null)} onLog={(msg) => { setLogFor({ c: draft, msg }); setDraft(null); }} />}
       {logFor && <ContactForm custId={logFor.c.id} initialMessage={logFor.msg} busy={busy} onClose={() => setLogFor(null)}
         act={async (fn, args, ok) => { setBusy(true); try { await callRpc(supabase, fn, args); onChanged(); } catch (e) { window.alert("Error: " + errMsg(e)); } setBusy(false); }} />}
@@ -1192,7 +1143,7 @@ function DraftSheet({ c, onClose, onLog }) {
   const s = c.suggestion || {};
   return (
     <Sheet title={s.draft === "reminder" ? "Gentle reminder draft" : "Check-in draft"} onClose={onClose}>
-      <Note tone="warn">This is only a draft — nothing is sent. Copy it, send it yourself, then log the contact.{c.consent === "unknown" ? " Consent is unknown: prefer a personal, non-promotional message." : ""}</Note>
+      <Note tone="warn">This is only a draft — nothing is sent. Copy it, send it yourself, then log the contact.</Note>
       <textarea className="ht-input" rows={7} value={text} onChange={e => setText(e.target.value)} aria-label="Message draft" />
       <div style={{ fontSize: 11.5, color: C.inkLight, margin: "6px 0 10px" }}>{s.draft === "checkin" ? "14+ days: ask for feedback first — suggest an offer only after they reply." : "7–13 days: a gentle nudge with a relevant dish or menu."}</div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -1219,7 +1170,7 @@ export function CustomerInsightsReport({ supabase, C = DEFAULT_C, onOpenCustomer
       {rows.slice(0, 25).map(c => (
         <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
           <div><strong style={{ color: C.ink }}>{c.name || "(no name)"}</strong> <span style={{ color: C.inkMid }}>· {c.tower || "tower ?"} · {c.delivered_orders} orders · {fmtINR(c.net_spend)} · last {fmtD(c.last_delivered)}</span>
-            <div style={{ fontSize: 11.5, color: C.inkLight }}>{c.suggestion?.label} · consent {CONSENT_LABEL[c.consent]}</div></div>
+            <div style={{ fontSize: 11.5, color: C.inkLight }}>{c.suggestion?.label}</div></div>
           <div style={{ textAlign: "right" }}><Pill tone={tone}>{c.days_since}d</Pill><div><button className="ht-btn btn-ghost btn-sm" style={{ padding: "1px 6px" }} onClick={() => onOpenCustomer && onOpenCustomer(c.id)}>open</button></div></div>
         </div>
       ))}
@@ -1299,7 +1250,6 @@ export function CustomerInsightsReport({ supabase, C = DEFAULT_C, onOpenCustomer
                 {[
                   ["Customers", miss.customers], ["Customers without tower", miss.customers_missing_tower], ["Customers without name", miss.customers_missing_name], ["Customers without society", miss.customers_missing_society],
                   ["Without confirmed preferences", miss.customers_without_confirmed_preferences], ["Never saw/answered the form", miss.customers_without_preference_form],
-                  ["WhatsApp consent unknown", miss.customers_consent_unknown], ["Consent needs review", miss.customers_consent_needs_review],
                   ["Delivered orders", miss.delivered_orders], ["Delivered without delivered timestamp", miss.delivered_orders_without_delivered_timestamp],
                   ["Delivered, contents not fully known", miss.delivered_orders_snapshot_not_full], ["Delivered, no published-menu record", miss.delivered_orders_without_menu_record],
                   ["Snapshots needing review", miss.snapshots_needing_review], ["Unresolved processing errors", miss.unresolved_analysis_errors],
@@ -1360,7 +1310,6 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
   const [state, setState] = useState("loading"); // loading | invalid | form | saved | skipped
   const [data, setData] = useState(null);
   const [a, setA] = useState({}); const [init, setInit] = useState({});
-  const [wa, setWa] = useState(false); const [waInit, setWaInit] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false); const [err, setErr] = useState(null);
 
@@ -1376,7 +1325,7 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
           fav_dishes: (r.answers.fav_dishes || []).map(x => x.label), fav_sides: (r.answers.fav_sides || []).map(x => x.label), disliked_dishes: (r.answers.disliked_dishes || []).map(x => x.label),
           bread_pref: r.answers.bread_pref || "", spice: r.answers.spice || "", oil: r.answers.oil || "", portion_pref: r.answers.portion_pref || "", usual_meal: r.answers.usual_meal || "",
         };
-        setA(base); setInit(base); setWa(r.whatsapp === "opted_in"); setWaInit(r.whatsapp === "opted_in");
+        setA(base); setInit(base);
         setState("form");
       } catch { if (live) setState("invalid"); }
     })();
@@ -1416,14 +1365,13 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
 
   const Chips = FormChips; const Radios = FormRadios; const Q = FormQ;
   const dirtyKeys = Object.keys(a).filter(k => JSON.stringify(a[k]) !== JSON.stringify(init[k]));
-  const waChanged = wa !== waInit;
-  const canSave = dirtyKeys.length > 0 || feedback.trim() || waChanged;
+  const canSave = dirtyKeys.length > 0 || feedback.trim();
   const save = async () => {
     setSaving(true); setErr(null);
     try {
       const answers = {}; dirtyKeys.forEach(k => { answers[k] = a[k]; });
       if (feedback.trim()) answers.feedback = feedback.trim();
-      const r = await callRpc(supabase, "pref_form_save", { p_token: token, p_answers: answers, p_whatsapp: waChanged ? (wa ? "opt_in" : "opt_out") : null });
+      const r = await callRpc(supabase, "pref_form_save", { p_token: token, p_answers: answers });
       if (!r || !r.ok) throw new Error("This link has expired. Please ask us for a new one.");
       setState("saved");
     } catch (e) { setErr(e); }
@@ -1458,12 +1406,6 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
       <Q title="Anything else you'd like to tell us?">
         <textarea className="ht-input" rows={3} maxLength={1000} value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Feedback, suggestions…" aria-label="Feedback" />
       </Q>
-      <Card style={{ background: C.cream }}>
-        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
-          <input type="checkbox" checked={wa} onChange={e => setWa(e.target.checked)} style={{ width: 20, height: 20, marginTop: 1, accentColor: C.saffron }} />
-          <span style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}><strong>WhatsApp offers (optional).</strong> Yes, you may send me menu updates and offers on WhatsApp. I can stop them at any time by unticking this box or replying STOP. This is separate from your preferences and is not needed to order.</span>
-        </label>
-      </Card>
       {err && <ErrorBox error={err} />}
       <button className="ht-btn btn-primary btn-full btn-lg" disabled={saving || !canSave} onClick={save}>{saving ? "Saving…" : "Save my preferences"}</button>
       <button className="ht-btn btn-ghost btn-full" style={{ marginTop: 8 }} onClick={skip}>Skip for now</button>
