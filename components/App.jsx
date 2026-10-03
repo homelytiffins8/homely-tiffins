@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard } from "./CustomerHub";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -2682,6 +2683,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
           )}
 
+          {/* Optional food-preference form (order confirmation page) */}
+          {!isRejected && <PreferencePromoCard supabase={supabase} C={C} orderId={live.id} />}
+
           {/* Refer a friend — show customer's own referral code so they can share it */}
           {!isRejected && referralConfig && referralConfig.enabled !== false && getReferralCode(live.phone) && (
             <div className="ht-card slide-in" style={{ padding: 18, marginBottom: 20, background: C.saffronLight, borderColor: C.saffron }}>
@@ -3684,6 +3688,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           ))}
         </div>
       </div>
+
+      {/* Returning customer's account area: optional food-preference form */}
+      {rememberedPhone && myOrders && myOrders.length > 0 && (
+        <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
+          <PreferencePromoCard supabase={supabase} C={C} orderId={myOrders[0].id} />
+        </div>
+      )}
 
       {/* ═══════ OWNER LOGIN — discreet footer button ═══════ */}
       <div style={{
@@ -5274,8 +5285,8 @@ function SalesDashboardCard({ allOrders }) {
   );
 }
 
-function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData }) {
-  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales"
+function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData, onOpenCustomer }) {
+  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales" | "customers"
   const EXPORT_PIN = "2018";
 
   // Combine archived history with today's live orders, de-duplicated by order id.
@@ -5360,7 +5371,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
     <div style={{ padding: "20px 0" }}>
       {/* Sub-tab switcher: Overview vs Sales Dashboard */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[["overview", "📊 Overview"], ["sales", "📈 Sales Dashboard"]].map(([key, lbl]) => (
+        {[["overview", "📊 Overview"], ["sales", "📈 Sales"], ["customers", "👥 Customers"]].map(([key, lbl]) => (
           <button
             key={key}
             onClick={() => setAnalyticsTab(key)}
@@ -5378,6 +5389,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
       </div>
 
       {analyticsTab === "sales" && <SalesDashboardCard allOrders={allOrders} />}
+      {analyticsTab === "customers" && <CustomerInsightsReport supabase={supabase} C={C} onOpenCustomer={onOpenCustomer} />}
 
       {analyticsTab === "overview" && <>
       <div className="ht-card" style={{ padding: 20, marginBottom: 20 }}>
@@ -6713,6 +6725,7 @@ function NotifyCenter() {
 
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTab] = useState("orders");
+  const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
 
   // "todayOrders" is filtered by the order's `date` field, which is stamped
   // once at creation and never updated. An order placed just before
@@ -6741,6 +6754,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "plans",    label: "🍛 Plans" },
     { id: "credit",   label: "📒 Credit" },
     { id: "analytics",label: "📊 Analytics" },
+    { id: "customers",label: "👥 Customers" },
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
     { id: "promo",    label: "🎟️ Promo" },
@@ -6849,7 +6863,8 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
         {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
-        {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
+        {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} onOpenCustomer={(id) => { setOpenCustomerId(id); setTab("customers"); }} />}
+        {tab === "customers" && <CustomersSection supabase={supabase} C={C} openCustomerId={openCustomerId} onOpened={() => setOpenCustomerId(null)} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
         {tab === "notify"    && <NotifyCenter />}
@@ -7034,7 +7049,9 @@ function useOrderAlert(todayOrders, isOwnerView) {
 // ─────────────────────────────────────────────
 export default function App() {
   // URL-hash based routing: #/owner → owner login / dashboard
-  const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : "customer";
+  // #/prefs/<token> → customer preference form (token-protected, see CustomerHub)
+  const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : window.location.hash.startsWith("#/prefs/") ? "prefs" : "customer";
+  const getPrefToken = () => window.location.hash.startsWith("#/prefs/") ? window.location.hash.slice(8).split(/[?&]/)[0] : "";
   const [route, setRoute] = useState(getRouteFromHash);
   const [ownerAuthed, setOwnerAuthed] = useState(false);
   const [ownerAuthChecked, setOwnerAuthChecked] = useState(false);
@@ -7092,7 +7109,7 @@ export default function App() {
     const onHash = () => {
       const r = getRouteFromHash();
       setRoute(r);
-      if (r === "customer") { clearOwnerSession(); } // auto-logout when navigating away (onAuthStateChange updates ownerAuthed)
+      if (r !== "owner") { clearOwnerSession(); } // auto-logout when navigating away (onAuthStateChange updates ownerAuthed)
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -7864,6 +7881,10 @@ export default function App() {
           onSubmitContactMessage={handleSubmitContactMessage}
           onOwnerAccess={() => { window.location.hash = "#/owner"; }}
         />
+      )}
+
+      {route === "prefs" && (
+        <PreferenceFormPage supabase={supabase} C={C} token={getPrefToken()} />
       )}
 
       {route === "owner" && !ownerAuthChecked && (
