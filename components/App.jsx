@@ -6733,9 +6733,49 @@ function NotifyCenter() {
   );
 }
 
+// ── PIN gate for sensitive owner tabs (Credit / Analytics / Customers) ──
+// Same PIN as the export / ledger-reset PINs above. Unlock state lives in
+// BackendApp and is per-tab: leaving the tab re-locks it immediately.
+const TAB_LOCK_PIN = "2018";
+function PinGate({ label, onUnlock }) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const submit = () => {
+    if (pin !== TAB_LOCK_PIN) { setErr("Wrong PIN. Try again."); setPin(""); return; }
+    onUnlock();
+  };
+  return (
+    <div className="ht-card" style={{ padding: 24, marginTop: 24, textAlign: "center" }}>
+      <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+      <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>{label} is PIN-protected</h3>
+      <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16 }}>Enter your security PIN to continue.</p>
+      <input
+        className="ht-input"
+        type="password" inputMode="numeric"
+        value={pin}
+        onChange={e => { setPin(e.target.value); setErr(""); }}
+        onKeyDown={e => { if (e.key === "Enter") submit(); }}
+        placeholder="Enter PIN"
+        style={{ textAlign: "center", letterSpacing: 8, fontSize: 20, marginBottom: err ? 6 : 16 }}
+        autoFocus
+      />
+      {err && <p style={{ fontSize: 12, color: C.red, marginBottom: 16 }}>⚠️ {err}</p>}
+      <button className="ht-btn btn-primary btn-full btn-lg" onClick={submit}>Unlock</button>
+    </div>
+  );
+}
+
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
-  const [tab, setTab] = useState("orders");
+  const [tab, setTabRaw] = useState("orders");
   const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
+  // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
+  // and is dropped the moment the owner switches to any other tab.
+  const [unlockedTab, setUnlockedTab] = useState(null);
+  const PROTECTED_TABS = ["credit", "analytics", "customers"];
+  const setTab = (id) => {
+    if (id !== tab) { setUnlockedTab(null); setTabRaw(id); }
+  };
+  const sensitiveUnlocked = unlockedTab === tab;
 
   // "todayOrders" is filtered by the order's `date` field, which is stamped
   // once at creation and never updated. An order placed just before
@@ -6872,9 +6912,12 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
-        {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
-        {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} onOpenCustomer={(id) => { setOpenCustomerId(id); setTab("customers"); }} />}
-        {tab === "customers" && <CustomersSection supabase={supabase} C={C} openCustomerId={openCustomerId} onOpened={() => setOpenCustomerId(null)} />}
+        {PROTECTED_TABS.includes(tab) && !sensitiveUnlocked && (
+          <PinGate label={tabs.find(t => t.id === tab)?.label.replace(/^\S+\s/, "")} onUnlock={() => setUnlockedTab(tab)} />
+        )}
+        {tab === "credit"    && sensitiveUnlocked && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
+        {tab === "analytics" && sensitiveUnlocked && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} onOpenCustomer={(id) => { setOpenCustomerId(id); setTab("customers"); }} />}
+        {tab === "customers" && sensitiveUnlocked && <CustomersSection supabase={supabase} C={C} openCustomerId={openCustomerId} onOpened={() => setOpenCustomerId(null)} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
         {tab === "notify"    && <NotifyCenter />}
