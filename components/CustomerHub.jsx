@@ -1392,7 +1392,8 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
     <>
       <Card>
         <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, margin: "0 0 4px" }}>Tell us your food preferences{data.first_name ? `, ${data.first_name}` : ""}</h2>
-        <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.55 }}>Everything here is optional and takes under a minute. Your answers help us suggest meals you'll like. They don't guarantee we can customise every order.</p>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, margin: "0 0 8px" }}>Just one time, and it takes only 30 seconds.</div>
+        <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.55 }}>Everything here is optional. Your answers help us suggest meals you'll like. They don't guarantee we can customise every order.</p>
         {showObs && <p style={{ fontSize: 12, color: C.inkLight, marginTop: 6 }}>For reference, what we've delivered to you most often: {obsAll.join(", ")}. {obsDiffers ? "Your answers below are different — that's fine, we'll go by what you tell us." : "Tell us what you actually like below."}</p>}
       </Card>
       <Q title="Favourite sabjis & dals" hint="Pick any, or add your own."><Chips field="fav_dishes" options={data.main_options} a={a} setA={setA} /></Q>
