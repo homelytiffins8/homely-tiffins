@@ -1482,6 +1482,10 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
 
   return shell(
     <>
+      {/* Skip at the top too, so customers don't have to scroll past the whole form */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <button className="ht-btn btn-ghost btn-sm" onClick={skip} data-testid="pref-skip-top">Skip for now</button>
+      </div>
       <Card>
         <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, margin: "0 0 4px" }}>Tell us your food preferences{data.first_name ? `, ${data.first_name}` : ""}</h2>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, margin: "0 0 8px" }}>Just one time, and it takes only 30 seconds.</div>
