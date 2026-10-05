@@ -7313,11 +7313,18 @@ export default function App() {
       // The migrated tables need their own subscriptions — listening only
       // to app_data would miss any change written directly to them
       // (e.g. a customer order placed via the place_order RPC).
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async (payload) => {
+        // Only re-read the full history when a past-day order actually changed —
+        // almost every change is to today's orders, and history re-reads were a
+        // big chunk of Supabase egress.
         const today = todayStr();
-        const [t, h] = await Promise.all([loadTodayOrdersFromTable(today), loadHistoryOrdersFromTable(today)]);
+        const d = payload.new?.date ?? payload.old?.date;
+        const t = await loadTodayOrdersFromTable(today);
         if (t) setTodayOrders(current => mergeOrders(current, t));
-        if (h) setOrdersHistory(current => mergeOrders(current, h));
+        if ((d && d !== today) || (!d && payload.eventType === "DELETE")) {
+          const h = await loadHistoryOrdersFromTable(today);
+          if (h) setOrdersHistory(current => mergeOrders(current, h));
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, async () => {
         const rows = await loadCustomersFromTable();
@@ -7345,12 +7352,23 @@ export default function App() {
   // This is what fixes "doesn't ring / doesn't move forward until I
   // refresh" — the old code relied entirely on the websocket staying
   // alive forever, which mobile Chrome does not guarantee. ──
+  // Full catch-up re-downloads every config key and table, so it is throttled:
+  // focus + visibilitychange usually fire together, and tab-switching all day
+  // used to trigger dozens of full downloads per device.
+  const lastFullSyncRef = useRef(0);
+  const throttledCatchUp = useCallback((minGapMs = 2 * 60 * 1000) => {
+    const now = Date.now();
+    if (now - lastFullSyncRef.current < minGapMs) return;
+    lastFullSyncRef.current = now;
+    catchUpSync();
+  }, [catchUpSync]);
+
   useEffect(() => {
     if (!loaded) return;
     const onWake = () => {
       if (document.visibilityState !== "visible" && !navigator.onLine) return;
       setRealtimeTick(t => t + 1); // tears down + recreates the channel
-      catchUpSync();
+      throttledCatchUp();
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("online", onWake);
@@ -7360,7 +7378,7 @@ export default function App() {
       window.removeEventListener("online", onWake);
       window.removeEventListener("focus", onWake);
     };
-  }, [loaded, catchUpSync]);
+  }, [loaded, throttledCatchUp]);
 
   // ── Polling safety net for the owner dashboard ──
   // postgres_changes realtime can silently die on mobile without ever firing
@@ -7371,11 +7389,19 @@ export default function App() {
   // drop with none of them just sits stale indefinitely. This guarantees a
   // worst-case staleness of ~20s regardless of whether any wake event fires,
   // so a pending order can never go unrung for more than that.
+  // The 20s poll only re-reads TODAY's orders (all the alarm needs); the full
+  // catch-up (config, history, customers, credit…) runs every 10 minutes.
+  // Previously the full catch-up ran every 20s and was the main Supabase egress cost.
   useEffect(() => {
     if (!loaded || !(route === "owner" && ownerAuthed)) return;
-    const id = setInterval(() => { catchUpSync(); }, 20000);
-    return () => clearInterval(id);
-  }, [loaded, route, ownerAuthed, catchUpSync]);
+    const pollToday = async () => {
+      const t = await loadTodayOrdersFromTable(todayStr());
+      if (t) setTodayOrders(current => mergeOrders(current, t));
+    };
+    const id = setInterval(pollToday, 20000);
+    const idFull = setInterval(() => throttledCatchUp(60 * 1000), 10 * 60 * 1000);
+    return () => { clearInterval(id); clearInterval(idFull); };
+  }, [loaded, route, ownerAuthed, throttledCatchUp]);
 
   // ── Auto-expire stale orders ──
   // Runs the 4-hour sweep (see expireStaleOrders above) on an interval
