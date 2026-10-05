@@ -2562,9 +2562,17 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     // nudge now appears when they tap "Proceed to Order" instead.
   };
 
-  const handleConfirmOrder = (order) => {
+  const handleConfirmOrder = async (order) => {
     setShowModal(false);
-    onPlaceOrder(order);
+    const res = await onPlaceOrder(order);
+    if (res && res.ok === false) {
+      // Order was not saved — keep the cart so nothing is lost.
+      window.alert(res.reason === "kitchen_closed"
+        ? "Sorry, the kitchen is closed right now and is not accepting orders. Your order was NOT placed."
+        : "Sorry, your order could not be placed. Please check your connection and try again.");
+      if (res.reason === "kitchen_closed") setStep("home");
+      return;
+    }
     setActiveOrder(order);
     setStep("track");
     setCart({});
@@ -7591,16 +7599,28 @@ export default function App() {
     // (possibly wrong / tampered) total instead of what was really
     // charged and stored.
     let authoritativeOrder = null;
+    let failure = null;
     try {
       const { error } = await supabase.rpc("place_order", { p_order: order });
       if (error) {
-        console.error("[place_order RPC] failed (app_data still has the order):", error);
+        console.error("[place_order RPC] failed:", error);
+        failure = /KITCHEN_CLOSED/.test(error.message || "") ? "kitchen_closed" : "error";
       } else {
         const { data: row, error: fetchErr } = await supabase.from("orders").select("*").eq("id", order.id).maybeSingle();
         if (!fetchErr && row) authoritativeOrder = rowToOrder(row);
       }
     } catch (err) {
-      console.error("[place_order RPC] threw (app_data still has the order):", err);
+      console.error("[place_order RPC] threw:", err);
+      failure = "error";
+    }
+
+    // The order was NOT saved (e.g. kitchen closed server-side): undo the
+    // optimistic local copy and tell the caller so the customer isn't shown
+    // a fake "order placed" screen.
+    if (failure) {
+      setTodayOrders(prev => prev.filter(o => o.id !== order.id));
+      if (failure === "kitchen_closed") setKitchenOpen(false);
+      return { ok: false, reason: failure };
     }
 
     if (authoritativeOrder) {
@@ -7619,6 +7639,7 @@ export default function App() {
       // customers table write already happened inside the place_order RPC above
       return next;
     });
+    return { ok: true };
   }, [todayOrders]);
 
   const handleAdvanceOrder = useCallback(async (orderId, nextStatus) => {
