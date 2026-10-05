@@ -100,6 +100,62 @@ function Pill({ children, tone = "neutral", style }) {
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: bg, color: fg, border: `1px solid ${bd}`, whiteSpace: "nowrap", ...style }}>{children}</span>;
 }
 const bucketTone = (b) => b === "active_0_6" ? "green" : b === "inactive_7_13" ? "amber" : b === "inactive_14_plus" ? "red" : "neutral";
+
+// ── delete / copy inactive customers (7–13 and 14+ days) ──
+// Server re-checks the bucket and archives the profile (customer_archive) before deleting;
+// orders and credit ledger are kept.
+const isInactive = (c) => c && (c.bucket === "inactive_7_13" || c.bucket === "inactive_14_plus");
+const DELETE_WARNING = "\n\nThis removes their customer profile, notes, contact log, preferences and form links (a backup copy is archived). Their past orders and credit ledger are kept. They reappear automatically if they place a new order.";
+async function deleteInactive(supabase, rows, label) {
+  rows = (rows || []).filter(isInactive);
+  if (!rows.length) return null;
+  const q = rows.length === 1 ? `Delete ${rows[0].name || "this customer"} (${rows[0].days_since}d inactive)?` : `Delete ${rows.length} customers from "${label}"?`;
+  if (!window.confirm(q + DELETE_WARNING)) return null;
+  const out = { deleted: 0, skipped: 0 };
+  for (const b of ["inactive_7_13", "inactive_14_plus"]) {
+    const ids = rows.filter(c => c.bucket === b).map(c => c.id);
+    if (!ids.length) continue;
+    const r = await callRpc(supabase, "staff_delete_inactive_customers", { p_bucket: b, p_ids: ids });
+    out.deleted += r.deleted || 0; out.skipped += r.skipped || 0;
+  }
+  return out;
+}
+const deleteResultText = (r) => `Deleted ${r.deleted} customer(s)${r.skipped ? `; ${r.skipped} skipped (order in progress or no longer inactive)` : ""}.`;
+const inactiveListText = (title, rows) => `${title} (${rows.length})\n` + rows.map(c => [c.name || "(no name)", c.phone || "", [c.tower, c.flat].filter(Boolean).join(" "), `${c.delivered_orders} orders`, fmtINR(c.net_spend), `last ${fmtD(c.last_delivered)} (${c.days_since}d)`].join(" | ")).join("\n");
+
+// "Copy list" + "Delete all" for a list of inactive customers. onDone(text, changed) reports the result.
+function InactiveListActions({ supabase, rows, title, onDone }) {
+  const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
+  rows = (rows || []).filter(isInactive);
+  const copy = async () => {
+    const ok = await copyText(inactiveListText(title, rows));
+    if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000); } else onDone && onDone("Could not copy automatically.", false);
+  };
+  const del = async () => {
+    setBusy(true);
+    try { const r = await deleteInactive(supabase, rows, title); if (r) onDone && onDone(deleteResultText(r), r.deleted > 0); }
+    catch (e) { onDone && onDone("Delete failed: " + errMsg(e), false); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <button className="ht-btn btn-ghost btn-sm" disabled={!rows.length} onClick={copy}>{copied ? "✓ Copied" : `Copy list (${rows.length})`}</button>
+      <button className="ht-btn btn-ghost btn-sm" style={{ color: "#B3261E" }} disabled={!rows.length || busy} onClick={del}>{busy ? "Deleting…" : `Delete all (${rows.length})`}</button>
+    </div>
+  );
+}
+// Per-customer delete button; renders nothing for customers that are not inactive.
+function DeleteCustomerBtn({ supabase, c, onDone, label = "Delete", style }) {
+  const [busy, setBusy] = useState(false);
+  if (!isInactive(c)) return null;
+  const del = async (e) => {
+    e.stopPropagation(); setBusy(true);
+    try { const r = await deleteInactive(supabase, [c], ""); if (r) onDone && onDone(deleteResultText(r), r.deleted > 0); }
+    catch (err) { onDone && onDone("Delete failed: " + errMsg(err), false); }
+    setBusy(false);
+  };
+  return <button className="ht-btn btn-ghost btn-sm" style={{ color: "#B3261E", ...style }} disabled={busy} onClick={del} onKeyDown={e => e.stopPropagation()}>{busy ? "Deleting…" : label}</button>;
+}
 function Stat({ label, value, sub }) {
   const C = useC();
   return (
@@ -179,6 +235,7 @@ export function CustomersSection({ supabase, C = DEFAULT_C, openCustomerId, onOp
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [delNote, setDelNote] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -205,7 +262,8 @@ export function CustomersSection({ supabase, C = DEFAULT_C, openCustomerId, onOp
     <ThemeCtx.Provider value={C}>
       <div style={{ padding: "16px 0" }}>
         {selected ? (
-          <CustomerProfile supabase={supabase} id={selected} onBack={() => { setSelected(null); load(); }} onOpen={(id) => setSelected(id)} />
+          <CustomerProfile supabase={supabase} id={selected} onBack={() => { setSelected(null); load(); }} onOpen={(id) => setSelected(id)}
+            onDeleted={(text) => { setDelNote(text); setSelected(null); load(); }} />
         ) : (
           <>
             <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto" }}>
@@ -236,8 +294,9 @@ export function CustomersSection({ supabase, C = DEFAULT_C, openCustomerId, onOp
             </Card>
             {error && <ErrorBox error={error} onRetry={load} />}
             {loading && !data && <Busy />}
-            {data && sub === "list" && <CustomerList data={data} onOpen={setSelected} />}
-            {data && sub === "reactivation" && <Reactivation supabase={supabase} data={data} onOpen={setSelected} onChanged={load} />}
+            {delNote && (sub === "list" || sub === "reactivation") && <Note>{delNote} <button className="ht-btn btn-ghost btn-sm" style={{ padding: "0 6px" }} onClick={() => setDelNote(null)}>✕</button></Note>}
+            {data && sub === "list" && <CustomerList supabase={supabase} data={data} onOpen={setSelected} onDeleted={(text, changed) => { setDelNote(text); if (changed) load(); }} />}
+            {data && sub === "reactivation" && <Reactivation supabase={supabase} data={data} onOpen={setSelected} onChanged={load} onDeleted={(text, changed) => { setDelNote(text); if (changed) load(); }} />}
             {sub === "duplicates" && <Duplicates supabase={supabase} onOpen={setSelected} onChanged={load} />}
             {sub === "dishes" && <DishCatalog supabase={supabase} onChanged={load} />}
           </>
@@ -273,7 +332,7 @@ function CustomerRow({ c, onOpen, extra }) {
     </div>
   );
 }
-function CustomerList({ data, onOpen }) {
+function CustomerList({ supabase, data, onOpen, onDeleted }) {
   const C = useC();
   const [q, setQ] = useState("");
   const [bucket, setBucket] = useState("all");
@@ -304,8 +363,14 @@ function CustomerList({ data, onOpen }) {
         ))}
       </div>
       <Note>Days since last delivery use Asia/Kolkata calendar dates. Rejected / never-delivered orders are not counted. Customers with no delivered orders are shown separately, not as “inactive”.</Note>
+      {(bucket === "inactive_7_13" || bucket === "inactive_14_plus") && shown.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <InactiveListActions supabase={supabase} rows={shown} title={`${bucket === "inactive_7_13" ? "Inactive 7–13 days" : "Inactive 14+ days"}${q.trim() ? ` matching “${q.trim()}”` : ""}`} onDone={onDeleted} />
+        </div>
+      )}
       {shown.length === 0 && <Busy text="No customers match." />}
-      {shown.map(c => <CustomerRow key={c.id} c={c} onOpen={onOpen} />)}
+      {shown.map(c => <CustomerRow key={c.id} c={c} onOpen={onOpen}
+        extra={isInactive(c) && <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}><DeleteCustomerBtn supabase={supabase} c={c} onDone={onDeleted} /></div>} />)}
     </>
   );
 }
@@ -313,7 +378,7 @@ function CustomerList({ data, onOpen }) {
 // ═════════════════════════════════════════════════════════════
 // CUSTOMER PROFILE
 // ═════════════════════════════════════════════════════════════
-function CustomerProfile({ supabase, id, onBack, onOpen }) {
+function CustomerProfile({ supabase, id, onBack, onOpen, onDeleted }) {
   const C = useC();
   const [p, setP] = useState(null);
   const [error, setError] = useState(null);
@@ -376,6 +441,8 @@ function CustomerProfile({ supabase, id, onBack, onOpen }) {
             </button>
           )}
           <button className="ht-btn btn-secondary btn-sm" disabled={busy} onClick={() => act("staff_refresh_analysis", { p_customer: s.id }, "Analysis refreshed")}>↻ Refresh this customer</button>
+          <DeleteCustomerBtn supabase={supabase} c={s} label="🗑 Delete customer"
+            onDone={(text, changed) => { if (changed && onDeleted) onDeleted(text); else say(text); }} />
         </div>
         {p.merged_records?.length > 0 && (
           <div style={{ fontSize: 11.5, color: C.inkMid, marginTop: 10 }}>
@@ -1010,7 +1077,7 @@ function DishCatalog({ supabase, onChanged }) {
 // ═════════════════════════════════════════════════════════════
 // REACTIVATION
 // ═════════════════════════════════════════════════════════════
-function Reactivation({ supabase, data, onOpen, onChanged }) {
+function Reactivation({ supabase, data, onOpen, onChanged, onDeleted }) {
   const C = useC();
   const all = data.customers || [];
   const [f, setF] = useState({ bucket: "both", society: "", tower: "", freq: "any", minOrders: "", minSpend: "", fav: "", top: "", variant: "", slot: "", missingForm: false, complaints: false, deferred: "any", showAll: false });
@@ -1083,6 +1150,7 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
           {s.draft && <button className="ht-btn btn-secondary btn-sm" onClick={() => setDraft(c)}>✍️ Message draft</button>}
           <button className="ht-btn btn-secondary btn-sm" onClick={() => setLogFor({ c, msg: "" })}>Log contact</button>
           <button className="ht-btn btn-ghost btn-sm" onClick={() => onOpen(c.id)}>Open profile</button>
+          <DeleteCustomerBtn supabase={supabase} c={c} onDone={onDeleted} style={{ marginLeft: "auto" }} />
         </div>
       </div>
     );
@@ -1129,6 +1197,12 @@ function Reactivation({ supabase, data, onOpen, onChanged }) {
           : <>No published menu exists for today or later, so dish-based reminders can't be matched yet.</>}
         {" "}Nothing is sent automatically — drafts are copy-only. {neverOrdered > 0 && `${neverOrdered} customer(s) have never had a delivered order and are listed only under Customers.`}
       </Note>
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: C.inkMid }}>{filtered.length} shown — copy/delete apply to exactly these.</span>
+          <InactiveListActions supabase={supabase} rows={filtered} title={f.bucket === "7_13" ? "Inactive 7–13 days" : f.bucket === "14" ? "Inactive 14+ days" : "All inactive"} onDone={onDeleted} />
+        </div>
+      )}
       {filtered.length === 0 && <Busy text="No inactive customers match these filters." />}
       {filtered.map(card)}
       {draft && <DraftSheet c={draft} onClose={() => setDraft(null)} onLog={(msg) => { setLogFor({ c: draft, msg }); setDraft(null); }} />}
@@ -1163,43 +1237,36 @@ export function CustomerInsightsReport({ supabase, C = DEFAULT_C, onOpenCustomer
   const load = useCallback(async () => { setLoading(true); setErr(null); try { setR(await callRpc(supabase, "staff_report_customer_metrics", { p_days: days })); } catch (e) { setErr(e); } setLoading(false); }, [supabase, days]);
   useEffect(() => { load(); }, [load]);
   const miss = r?.missing_data || {};
-  const [busyDel, setBusyDel] = useState(null); const [note, setNote] = useState(null); const [copiedKey, setCopiedKey] = useState(null);
-  const copyList = async (key, title, rows) => {
-    const lines = rows.map(c => [c.name || "(no name)", c.phone || "", [c.tower, c.flat].filter(Boolean).join(" "), `${c.delivered_orders} orders`, fmtINR(c.net_spend), `last ${fmtD(c.last_delivered)} (${c.days_since}d)`].join(" | "));
-    const ok = await copyText(`${title} (${rows.length})\n` + lines.join("\n"));
-    setCopiedKey(ok ? key : null); setTimeout(() => setCopiedKey(null), 2000);
-    if (!ok) setNote({ tone: "red", text: "Could not copy automatically." });
+  const [note, setNote] = useState(null); const [showAll, setShowAll] = useState({});
+  const onDone = (text, changed) => { setNote({ text }); if (changed) load(); };
+  // called as a function (not <List/>) so the action buttons keep their state across re-renders
+  const List = ({ title, rows, tone, bucket }) => {
+    rows = rows.map(c => ({ ...c, bucket }));
+    const shown = showAll[bucket] ? rows : rows.slice(0, 25);
+    return (
+      <Card>
+        <H sub="Sorted by lifetime spend." right={<InactiveListActions supabase={supabase} rows={rows} title={title} onDone={onDone} />}>{title} ({rows.length})</H>
+        {rows.length === 0 && <div style={{ fontSize: 12, color: C.inkLight }}>None.</div>}
+        {shown.map(c => (
+          <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
+            <div><strong style={{ color: C.ink }}>{c.name || "(no name)"}</strong> <span style={{ color: C.inkMid }}>· {c.tower || "tower ?"} · {c.delivered_orders} orders · {fmtINR(c.net_spend)} · last {fmtD(c.last_delivered)}</span>
+              <div style={{ fontSize: 11.5, color: C.inkLight }}>{c.suggestion?.label}</div></div>
+            <div style={{ textAlign: "right" }}><Pill tone={tone}>{c.days_since}d</Pill>
+              <div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                <button className="ht-btn btn-ghost btn-sm" style={{ padding: "1px 6px" }} onClick={() => onOpenCustomer && onOpenCustomer(c.id)}>open</button>
+                <DeleteCustomerBtn supabase={supabase} c={c} onDone={onDone} style={{ padding: "1px 6px" }} />
+              </div></div>
+          </div>
+        ))}
+        {rows.length > 25 && (
+          <div style={{ fontSize: 11.5, color: C.inkLight, paddingTop: 6 }}>
+            {showAll[bucket] ? `Showing all ${rows.length}.` : `Showing 25 of ${rows.length}.`} “Copy list” and “Delete all” apply to all {rows.length}.{" "}
+            <button className="ht-btn btn-ghost btn-sm" style={{ padding: "0 6px" }} onClick={() => setShowAll(m => ({ ...m, [bucket]: !m[bucket] }))}>{showAll[bucket] ? "Show fewer" : "Show all"}</button>
+          </div>
+        )}
+      </Card>
+    );
   };
-  const deleteList = async (bucket, title, rows) => {
-    if (!rows.length) return;
-    if (!window.confirm(`Delete ${rows.length} customer(s) from "${title}"?\n\nThis removes their customer profile, notes, contact log, preferences and form links. Their past orders and credit ledger are kept. They reappear automatically if they place a new order.\n\nThis cannot be undone.`)) return;
-    setBusyDel(bucket); setNote(null);
-    try {
-      const res = await callRpc(supabase, "staff_delete_inactive_customers", { p_bucket: bucket, p_ids: rows.map(c => c.id) });
-      setNote({ tone: "green", text: `Deleted ${res.deleted} customer(s)${res.skipped ? `; ${res.skipped} skipped (order in progress or no longer in this group)` : ""}.` });
-      await load();
-    } catch (e) { setNote({ tone: "red", text: "Delete failed: " + errMsg(e) }); }
-    setBusyDel(null);
-  };
-  const List = ({ title, rows, tone, bucket }) => (
-    <Card>
-      <H sub="Sorted by lifetime spend." right={
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="ht-btn btn-ghost btn-sm" disabled={!rows.length} onClick={() => copyList(bucket, title, rows)}>{copiedKey === bucket ? "✓ Copied" : "Copy list"}</button>
-          <button className="ht-btn btn-ghost btn-sm" style={{ color: "#B3261E" }} disabled={!rows.length || busyDel !== null} onClick={() => deleteList(bucket, title, rows)}>{busyDel === bucket ? "Deleting…" : "Delete all"}</button>
-        </div>
-      }>{title} ({rows.length})</H>
-      {rows.length === 0 && <div style={{ fontSize: 12, color: C.inkLight }}>None.</div>}
-      {rows.slice(0, 25).map(c => (
-        <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
-          <div><strong style={{ color: C.ink }}>{c.name || "(no name)"}</strong> <span style={{ color: C.inkMid }}>· {c.tower || "tower ?"} · {c.delivered_orders} orders · {fmtINR(c.net_spend)} · last {fmtD(c.last_delivered)}</span>
-            <div style={{ fontSize: 11.5, color: C.inkLight }}>{c.suggestion?.label}</div></div>
-          <div style={{ textAlign: "right" }}><Pill tone={tone}>{c.days_since}d</Pill><div><button className="ht-btn btn-ghost btn-sm" style={{ padding: "1px 6px" }} onClick={() => onOpenCustomer && onOpenCustomer(c.id)}>open</button></div></div>
-        </div>
-      ))}
-      {rows.length > 25 && <div style={{ fontSize: 11.5, color: C.inkLight, paddingTop: 6 }}>Showing 25 of {rows.length}. “Copy list” and “Delete all” apply to all {rows.length}.</div>}
-    </Card>
-  );
   const popTable = (rows, cols) => (
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
       <thead><tr style={{ textAlign: "left", color: C.inkLight }}>{cols.map(c => <th key={c[0]} style={{ padding: "4px 6px" }}>{c[0]}</th>)}</tr></thead>
@@ -1239,8 +1306,8 @@ export function CustomerInsightsReport({ supabase, C = DEFAULT_C, onOpenCustomer
               </StatGrid>
             </Card>
             {note && <Note>{note.text}</Note>}
-            <List title="Inactive 7–13 days" rows={r.inactive_7_13 || []} tone="amber" bucket="inactive_7_13" />
-            <List title="Inactive 14+ days" rows={r.inactive_14_plus || []} tone="red" bucket="inactive_14_plus" />
+            {List({ title: "Inactive 7–13 days", rows: r.inactive_7_13 || [], tone: "amber", bucket: "inactive_7_13" })}
+            {List({ title: "Inactive 14+ days", rows: r.inactive_14_plus || [], tone: "red", bucket: "inactive_14_plus" })}
             <Card>
               <H sub="Delivered orders only; tower as recorded on each order.">Towers</H>
               {popTable(r.towers || [], [["Tower", x => x.tower], ["Orders", x => x.delivered_orders], ["Revenue", x => fmtINR(x.revenue)], ["Last delivery", x => `${fmtD(x.last_delivery)} (${x.days_since_last}d)`], [`Last ${r.window.days}d`, x => `${x.orders_window} / ${fmtINR(x.revenue_window)}`], ["Prev", x => x.orders_prev_window]])}
