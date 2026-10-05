@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard, PreferenceAutoPrompt } from "./CustomerHub";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -231,8 +232,9 @@ function defaultPlanConfig() {
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
     enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, goldMini: true, raita: true, salad: true, sweet: true },
-    // Optional photo per variant, stored as a resized/compressed base64 JPEG
-    // data URL. Empty string means "no photo".
+    // Optional photo per variant: a public URL in the "menu-photos" Storage
+    // bucket (legacy configs may still hold a base64 data URL until the owner
+    // next opens the dashboard). Empty string means "no photo".
     photos: { gold: "", standard: "", mini: "", goldMini: "" },
   };
 }
@@ -285,6 +287,20 @@ function resizeAndCompressImage(file, maxWidth = 1400, quality = 0.85) {
     reader.readAsDataURL(file);
   });
 }
+
+// Menu photos live in the public "menu-photos" Storage bucket instead of being
+// stored as base64 inside ht_plan_config (which every customer downloads on
+// every app open). Unique file names let browsers/CDN cache them for a year.
+const MENU_PHOTO_BUCKET = "menu-photos";
+async function uploadMenuPhoto(key, dataUrl) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const { error } = await supabase.storage.from(MENU_PHOTO_BUCKET)
+    .upload(path, blob, { contentType: blob.type || "image/jpeg", cacheControl: "31536000", upsert: false });
+  if (error) throw error;
+  return supabase.storage.from(MENU_PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+const isInlinePhoto = (src) => typeof src === "string" && src.startsWith("data:");
 
 // Cap stored poll responses so the payload stays small for realtime sync.
 const MAX_POLL_RESPONSES = 3000;
@@ -2403,6 +2419,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [showRatingModal, setShowRatingModal] = useState(false);
   // Poll popup: holds the just-placed order while the poll modal is shown.
   const [pollOrder, setPollOrder] = useState(null);
+  // Food-preference form that opens over the order page after each order until it is saved.
+  // prefTick makes the reminder card re-check once the form is closed.
+  const [prefPromptOrderId, setPrefPromptOrderId] = useState(null);
+  const [prefTick, setPrefTick] = useState(0);
 
   // Read remembered phone on mount (no-op if browser storage isn't available)
   useEffect(() => {
@@ -2542,14 +2562,25 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     // nudge now appears when they tap "Proceed to Order" instead.
   };
 
-  const handleConfirmOrder = (order) => {
+  const handleConfirmOrder = async (order) => {
     setShowModal(false);
-    onPlaceOrder(order);
+    const res = await onPlaceOrder(order);
+    if (res && res.ok === false) {
+      // Order was not saved — keep the cart so nothing is lost.
+      window.alert(
+        res.reason === "kitchen_closed" ? "Sorry, the kitchen is closed right now and is not accepting orders. Your order was NOT placed."
+        : res.reason === "unavailable" ? `Sorry, something in your cart is no longer available${res.detail && !/PLANS_NOT_AVAILABLE/.test(res.detail) ? ` (${res.detail})` : ""}. The menu has been refreshed — please review your cart. Your order was NOT placed.`
+        : res.reason === "invalid" ? `Your order could not be placed: ${res.detail || "please check your details"}.`
+        : "Sorry, your order could not be placed. Please check your connection and try again.");
+      if (res.reason === "kitchen_closed") setStep("home");
+      return;
+    }
     setActiveOrder(order);
     setStep("track");
     setCart({});
     setPlanCartMeta({});
     setSpecialInstructions("");
+    setPrefPromptOrderId(order.id);
     // Remember this customer's phone on the device so we can prompt them for
     // a rating on their next visit. Silently ignored if storage isn't available.
     try {
@@ -2616,6 +2647,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       (nowTick - new Date(live.createdAt).getTime()) > 15 * 60 * 1000;
     return (
       <div style={{ minHeight: "100vh", background: C.cream, padding: "24px 16px" }}>
+        {/* Opens the food-preference form over this page after an order, until the customer saves it */}
+        {prefPromptOrderId === live.id && (
+          <PreferenceAutoPrompt supabase={supabase} C={C} orderId={live.id}
+            onClose={() => { setPrefPromptOrderId(null); setPrefTick(t => t + 1); }} />
+        )}
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>🍱</div>
@@ -2681,6 +2717,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               </p>
             </div>
           )}
+
+          {/* Optional food-preference form (order confirmation page) */}
+          {!isRejected && <PreferencePromoCard supabase={supabase} C={C} orderId={live.id} recheck={prefTick} />}
 
           {/* Refer a friend — show customer's own referral code so they can share it */}
           {!isRejected && referralConfig && referralConfig.enabled !== false && getReferralCode(live.phone) && (
@@ -2752,7 +2791,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.gold && (
                         <img
-                          src={planConfig.photos.gold}
+                          src={planConfig.photos.gold} loading="lazy" decoding="async"
                           alt="Homely Gold"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.gold, label: "Homely Gold" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2783,7 +2822,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.goldMini && (
                         <img
-                          src={planConfig.photos.goldMini}
+                          src={planConfig.photos.goldMini} loading="lazy" decoding="async"
                           alt="Homely Gold Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2807,7 +2846,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.standard && (
                         <img
-                          src={planConfig.photos.standard}
+                          src={planConfig.photos.standard} loading="lazy" decoding="async"
                           alt="Homely Standard"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.standard, label: "Homely Standard" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2831,7 +2870,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
                         <img
-                          src={planConfig.photos.mini}
+                          src={planConfig.photos.mini} loading="lazy" decoding="async"
                           alt="Homely Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.mini, label: "Homely Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -3685,6 +3724,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         </div>
       </div>
 
+      {/* Returning customer's account area: optional food-preference form */}
+      {rememberedPhone && myOrders && myOrders.length > 0 && (
+        <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
+          <PreferencePromoCard supabase={supabase} C={C} orderId={myOrders[0].id} />
+        </div>
+      )}
+
       {/* ═══════ OWNER LOGIN — discreet footer button ═══════ */}
       <div style={{
         maxWidth: 420, margin: "36px auto 0", padding: "0 14px 30px",
@@ -3934,7 +3980,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
     setUploading(prev => ({ ...prev, [key]: true }));
     try {
       const dataUrl = await resizeAndCompressImage(file);
-      setPhotos(prev => ({ ...prev, [key]: dataUrl }));
+      let src = dataUrl;
+      try { src = await uploadMenuPhoto(key, dataUrl); }
+      catch (e) { setUploadErr("Photo storage upload failed — photo kept inside the menu instead (works, but uses more data)."); }
+      setPhotos(prev => ({ ...prev, [key]: src }));
     } catch (err) {
       setUploadErr("Could not process image");
     } finally {
@@ -5274,8 +5323,8 @@ function SalesDashboardCard({ allOrders }) {
   );
 }
 
-function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData }) {
-  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales"
+function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData, onOpenCustomer }) {
+  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales" | "customers"
   const EXPORT_PIN = "2018";
 
   // Combine archived history with today's live orders, de-duplicated by order id.
@@ -5360,7 +5409,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
     <div style={{ padding: "20px 0" }}>
       {/* Sub-tab switcher: Overview vs Sales Dashboard */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[["overview", "📊 Overview"], ["sales", "📈 Sales Dashboard"]].map(([key, lbl]) => (
+        {[["overview", "📊 Overview"], ["sales", "📈 Sales"], ["customers", "👥 Customers"]].map(([key, lbl]) => (
           <button
             key={key}
             onClick={() => setAnalyticsTab(key)}
@@ -5378,6 +5427,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData 
       </div>
 
       {analyticsTab === "sales" && <SalesDashboardCard allOrders={allOrders} />}
+      {analyticsTab === "customers" && <CustomerInsightsReport supabase={supabase} C={C} onOpenCustomer={onOpenCustomer} />}
 
       {analyticsTab === "overview" && <>
       <div className="ht-card" style={{ padding: 20, marginBottom: 20 }}>
@@ -6711,8 +6761,49 @@ function NotifyCenter() {
   );
 }
 
+// ── PIN gate for sensitive owner tabs (Credit / Analytics / Customers) ──
+// Same PIN as the export / ledger-reset PINs above. Unlock state lives in
+// BackendApp and is per-tab: leaving the tab re-locks it immediately.
+const TAB_LOCK_PIN = "2018";
+function PinGate({ label, onUnlock }) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const submit = () => {
+    if (pin !== TAB_LOCK_PIN) { setErr("Wrong PIN. Try again."); setPin(""); return; }
+    onUnlock();
+  };
+  return (
+    <div className="ht-card" style={{ padding: 24, marginTop: 24, textAlign: "center" }}>
+      <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+      <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>{label} is PIN-protected</h3>
+      <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 16 }}>Enter your security PIN to continue.</p>
+      <input
+        className="ht-input"
+        type="password" inputMode="numeric"
+        value={pin}
+        onChange={e => { setPin(e.target.value); setErr(""); }}
+        onKeyDown={e => { if (e.key === "Enter") submit(); }}
+        placeholder="Enter PIN"
+        style={{ textAlign: "center", letterSpacing: 8, fontSize: 20, marginBottom: err ? 6 : 16 }}
+        autoFocus
+      />
+      {err && <p style={{ fontSize: 12, color: C.red, marginBottom: 16 }}>⚠️ {err}</p>}
+      <button className="ht-btn btn-primary btn-full btn-lg" onClick={submit}>Unlock</button>
+    </div>
+  );
+}
+
 function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
-  const [tab, setTab] = useState("orders");
+  const [tab, setTabRaw] = useState("orders");
+  const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
+  // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
+  // and is dropped the moment the owner switches to any other tab.
+  const [unlockedTab, setUnlockedTab] = useState(null);
+  const PROTECTED_TABS = ["credit", "analytics", "customers"];
+  const setTab = (id) => {
+    if (id !== tab) { setUnlockedTab(null); setTabRaw(id); }
+  };
+  const sensitiveUnlocked = unlockedTab === tab;
 
   // "todayOrders" is filtered by the order's `date` field, which is stamped
   // once at creation and never updated. An order placed just before
@@ -6741,6 +6832,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "plans",    label: "🍛 Plans" },
     { id: "credit",   label: "📒 Credit" },
     { id: "analytics",label: "📊 Analytics" },
+    { id: "customers",label: "👥 Customers" },
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
     { id: "promo",    label: "🎟️ Promo" },
@@ -6848,8 +6940,12 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
-        {tab === "credit"    && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
-        {tab === "analytics" && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} />}
+        {PROTECTED_TABS.includes(tab) && !sensitiveUnlocked && (
+          <PinGate label={tabs.find(t => t.id === tab)?.label.replace(/^\S+\s/, "")} onUnlock={() => setUnlockedTab(tab)} />
+        )}
+        {tab === "credit"    && sensitiveUnlocked && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
+        {tab === "analytics" && sensitiveUnlocked && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} onOpenCustomer={(id) => { setOpenCustomerId(id); setTab("customers"); }} />}
+        {tab === "customers" && sensitiveUnlocked && <CustomersSection supabase={supabase} C={C} openCustomerId={openCustomerId} onOpened={() => setOpenCustomerId(null)} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
         {tab === "notify"    && <NotifyCenter />}
@@ -7034,7 +7130,9 @@ function useOrderAlert(todayOrders, isOwnerView) {
 // ─────────────────────────────────────────────
 export default function App() {
   // URL-hash based routing: #/owner → owner login / dashboard
-  const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : "customer";
+  // #/prefs/<token> → customer preference form (token-protected, see CustomerHub)
+  const getRouteFromHash = () => window.location.hash === "#/owner" ? "owner" : window.location.hash.startsWith("#/prefs/") ? "prefs" : "customer";
+  const getPrefToken = () => window.location.hash.startsWith("#/prefs/") ? window.location.hash.slice(8).split(/[?&]/)[0] : "";
   const [route, setRoute] = useState(getRouteFromHash);
   const [ownerAuthed, setOwnerAuthed] = useState(false);
   const [ownerAuthChecked, setOwnerAuthChecked] = useState(false);
@@ -7092,7 +7190,7 @@ export default function App() {
     const onHash = () => {
       const r = getRouteFromHash();
       setRoute(r);
-      if (r === "customer") { clearOwnerSession(); } // auto-logout when navigating away (onAuthStateChange updates ownerAuthed)
+      if (r !== "owner") { clearOwnerSession(); } // auto-logout when navigating away (onAuthStateChange updates ownerAuthed)
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -7225,11 +7323,18 @@ export default function App() {
       // The migrated tables need their own subscriptions — listening only
       // to app_data would miss any change written directly to them
       // (e.g. a customer order placed via the place_order RPC).
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async (payload) => {
+        // Only re-read the full history when a past-day order actually changed —
+        // almost every change is to today's orders, and history re-reads were a
+        // big chunk of Supabase egress.
         const today = todayStr();
-        const [t, h] = await Promise.all([loadTodayOrdersFromTable(today), loadHistoryOrdersFromTable(today)]);
+        const d = payload.new?.date ?? payload.old?.date;
+        const t = await loadTodayOrdersFromTable(today);
         if (t) setTodayOrders(current => mergeOrders(current, t));
-        if (h) setOrdersHistory(current => mergeOrders(current, h));
+        if ((d && d !== today) || (!d && payload.eventType === "DELETE")) {
+          const h = await loadHistoryOrdersFromTable(today);
+          if (h) setOrdersHistory(current => mergeOrders(current, h));
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, async () => {
         const rows = await loadCustomersFromTable();
@@ -7257,12 +7362,23 @@ export default function App() {
   // This is what fixes "doesn't ring / doesn't move forward until I
   // refresh" — the old code relied entirely on the websocket staying
   // alive forever, which mobile Chrome does not guarantee. ──
+  // Full catch-up re-downloads every config key and table, so it is throttled:
+  // focus + visibilitychange usually fire together, and tab-switching all day
+  // used to trigger dozens of full downloads per device.
+  const lastFullSyncRef = useRef(0);
+  const throttledCatchUp = useCallback((minGapMs = 2 * 60 * 1000) => {
+    const now = Date.now();
+    if (now - lastFullSyncRef.current < minGapMs) return;
+    lastFullSyncRef.current = now;
+    catchUpSync();
+  }, [catchUpSync]);
+
   useEffect(() => {
     if (!loaded) return;
     const onWake = () => {
       if (document.visibilityState !== "visible" && !navigator.onLine) return;
       setRealtimeTick(t => t + 1); // tears down + recreates the channel
-      catchUpSync();
+      throttledCatchUp();
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("online", onWake);
@@ -7272,7 +7388,7 @@ export default function App() {
       window.removeEventListener("online", onWake);
       window.removeEventListener("focus", onWake);
     };
-  }, [loaded, catchUpSync]);
+  }, [loaded, throttledCatchUp]);
 
   // ── Polling safety net for the owner dashboard ──
   // postgres_changes realtime can silently die on mobile without ever firing
@@ -7283,11 +7399,19 @@ export default function App() {
   // drop with none of them just sits stale indefinitely. This guarantees a
   // worst-case staleness of ~20s regardless of whether any wake event fires,
   // so a pending order can never go unrung for more than that.
+  // The 20s poll only re-reads TODAY's orders (all the alarm needs); the full
+  // catch-up (config, history, customers, credit…) runs every 10 minutes.
+  // Previously the full catch-up ran every 20s and was the main Supabase egress cost.
   useEffect(() => {
     if (!loaded || !(route === "owner" && ownerAuthed)) return;
-    const id = setInterval(() => { catchUpSync(); }, 20000);
-    return () => clearInterval(id);
-  }, [loaded, route, ownerAuthed, catchUpSync]);
+    const pollToday = async () => {
+      const t = await loadTodayOrdersFromTable(todayStr());
+      if (t) setTodayOrders(current => mergeOrders(current, t));
+    };
+    const id = setInterval(pollToday, 20000);
+    const idFull = setInterval(() => throttledCatchUp(60 * 1000), 10 * 60 * 1000);
+    return () => { clearInterval(id); clearInterval(idFull); };
+  }, [loaded, route, ownerAuthed, throttledCatchUp]);
 
   // ── Auto-expire stale orders ──
   // Runs the 4-hour sweep (see expireStaleOrders above) on an interval
@@ -7324,6 +7448,25 @@ export default function App() {
   const handleSavePlanConfig = useCallback(async (newConfig) => {
     setPlanConfig(newConfig); await save(KEYS.planConfig, newConfig);
   }, []);
+
+  // One-time move of legacy base64 menu photos into Storage. Runs only on the
+  // signed-in owner's device; keeps every other planConfig field (incl. date) as is.
+  const photoMigrationRan = useRef(false);
+  useEffect(() => {
+    if (!ownerAuthed || !planConfig || photoMigrationRan.current) return;
+    const photos = planConfig.photos || {};
+    const keys = Object.keys(photos).filter(k => isInlinePhoto(photos[k]));
+    if (!keys.length) return;
+    photoMigrationRan.current = true;
+    (async () => {
+      try {
+        const moved = {};
+        for (const k of keys) moved[k] = await uploadMenuPhoto(k, photos[k]);
+        const next = { ...planConfig, photos: { ...photos, ...moved } };
+        setPlanConfig(next); await save(KEYS.planConfig, next);
+      } catch (e) { console.warn("Menu photo migration to Storage failed; will retry next time", e); }
+    })();
+  }, [ownerAuthed, planConfig]);
 
   const handleSaveContactInfo = useCallback(async (info) => {
     const clean = { phone: (info.phone || "").trim(), whatsapp: (info.whatsapp || "").trim(), email: (info.email || "").trim() };
@@ -7458,16 +7601,35 @@ export default function App() {
     // (possibly wrong / tampered) total instead of what was really
     // charged and stored.
     let authoritativeOrder = null;
+    let failure = null;
+    let failureDetail = "";
     try {
       const { error } = await supabase.rpc("place_order", { p_order: order });
       if (error) {
-        console.error("[place_order RPC] failed (app_data still has the order):", error);
+        console.error("[place_order RPC] failed:", error);
+        const m = error.message || "";
+        failure = /KITCHEN_CLOSED/.test(m) ? "kitchen_closed"
+          : /PLANS_NOT_AVAILABLE|ITEM_UNAVAILABLE/.test(m) ? "unavailable"
+          : /INVALID_ORDER/.test(m) ? "invalid" : "error";
+        failureDetail = m.replace(/^(ITEM_UNAVAILABLE|INVALID_ORDER):\s*/, "");
       } else {
         const { data: row, error: fetchErr } = await supabase.from("orders").select("*").eq("id", order.id).maybeSingle();
         if (!fetchErr && row) authoritativeOrder = rowToOrder(row);
       }
     } catch (err) {
-      console.error("[place_order RPC] threw (app_data still has the order):", err);
+      console.error("[place_order RPC] threw:", err);
+      failure = "error";
+    }
+
+    // The order was NOT saved (e.g. kitchen closed server-side): undo the
+    // optimistic local copy and tell the caller so the customer isn't shown
+    // a fake "order placed" screen.
+    if (failure) {
+      setTodayOrders(prev => prev.filter(o => o.id !== order.id));
+      if (failure === "kitchen_closed") setKitchenOpen(false);
+      // Menu/plan changed under the customer — pull fresh config so the screen matches the server.
+      if (failure === "unavailable") catchUpSync();
+      return { ok: false, reason: failure, detail: failureDetail };
     }
 
     if (authoritativeOrder) {
@@ -7486,7 +7648,8 @@ export default function App() {
       // customers table write already happened inside the place_order RPC above
       return next;
     });
-  }, [todayOrders]);
+    return { ok: true };
+  }, [todayOrders, catchUpSync]);
 
   const handleAdvanceOrder = useCallback(async (orderId, nextStatus) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
@@ -7864,6 +8027,10 @@ export default function App() {
           onSubmitContactMessage={handleSubmitContactMessage}
           onOwnerAccess={() => { window.location.hash = "#/owner"; }}
         />
+      )}
+
+      {route === "prefs" && (
+        <PreferenceFormPage supabase={supabase} C={C} token={getPrefToken()} />
       )}
 
       {route === "owner" && !ownerAuthChecked && (
