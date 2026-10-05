@@ -232,8 +232,9 @@ function defaultPlanConfig() {
     // Homely Gold has independent Medium/Large toggles so one size can be
     // sold out while the other stays available.
     enabled: { goldMedium: true, goldLarge: true, standard: true, mini: true, goldMini: true, raita: true, salad: true, sweet: true },
-    // Optional photo per variant, stored as a resized/compressed base64 JPEG
-    // data URL. Empty string means "no photo".
+    // Optional photo per variant: a public URL in the "menu-photos" Storage
+    // bucket (legacy configs may still hold a base64 data URL until the owner
+    // next opens the dashboard). Empty string means "no photo".
     photos: { gold: "", standard: "", mini: "", goldMini: "" },
   };
 }
@@ -286,6 +287,20 @@ function resizeAndCompressImage(file, maxWidth = 1400, quality = 0.85) {
     reader.readAsDataURL(file);
   });
 }
+
+// Menu photos live in the public "menu-photos" Storage bucket instead of being
+// stored as base64 inside ht_plan_config (which every customer downloads on
+// every app open). Unique file names let browsers/CDN cache them for a year.
+const MENU_PHOTO_BUCKET = "menu-photos";
+async function uploadMenuPhoto(key, dataUrl) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const { error } = await supabase.storage.from(MENU_PHOTO_BUCKET)
+    .upload(path, blob, { contentType: blob.type || "image/jpeg", cacheControl: "31536000", upsert: false });
+  if (error) throw error;
+  return supabase.storage.from(MENU_PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+const isInlinePhoto = (src) => typeof src === "string" && src.startsWith("data:");
 
 // Cap stored poll responses so the payload stays small for realtime sync.
 const MAX_POLL_RESPONSES = 3000;
@@ -2766,7 +2781,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.gold && (
                         <img
-                          src={planConfig.photos.gold}
+                          src={planConfig.photos.gold} loading="lazy" decoding="async"
                           alt="Homely Gold"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.gold, label: "Homely Gold" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2797,7 +2812,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.goldMini && (
                         <img
-                          src={planConfig.photos.goldMini}
+                          src={planConfig.photos.goldMini} loading="lazy" decoding="async"
                           alt="Homely Gold Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2821,7 +2836,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.standard && (
                         <img
-                          src={planConfig.photos.standard}
+                          src={planConfig.photos.standard} loading="lazy" decoding="async"
                           alt="Homely Standard"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.standard, label: "Homely Standard" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2845,7 +2860,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
                         <img
-                          src={planConfig.photos.mini}
+                          src={planConfig.photos.mini} loading="lazy" decoding="async"
                           alt="Homely Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.mini, label: "Homely Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -3955,7 +3970,10 @@ function PlanMenuEditor({ planConfig, onSave }) {
     setUploading(prev => ({ ...prev, [key]: true }));
     try {
       const dataUrl = await resizeAndCompressImage(file);
-      setPhotos(prev => ({ ...prev, [key]: dataUrl }));
+      let src = dataUrl;
+      try { src = await uploadMenuPhoto(key, dataUrl); }
+      catch (e) { setUploadErr("Photo storage upload failed — photo kept inside the menu instead (works, but uses more data)."); }
+      setPhotos(prev => ({ ...prev, [key]: src }));
     } catch (err) {
       setUploadErr("Could not process image");
     } finally {
@@ -7394,6 +7412,25 @@ export default function App() {
   const handleSavePlanConfig = useCallback(async (newConfig) => {
     setPlanConfig(newConfig); await save(KEYS.planConfig, newConfig);
   }, []);
+
+  // One-time move of legacy base64 menu photos into Storage. Runs only on the
+  // signed-in owner's device; keeps every other planConfig field (incl. date) as is.
+  const photoMigrationRan = useRef(false);
+  useEffect(() => {
+    if (!ownerAuthed || !planConfig || photoMigrationRan.current) return;
+    const photos = planConfig.photos || {};
+    const keys = Object.keys(photos).filter(k => isInlinePhoto(photos[k]));
+    if (!keys.length) return;
+    photoMigrationRan.current = true;
+    (async () => {
+      try {
+        const moved = {};
+        for (const k of keys) moved[k] = await uploadMenuPhoto(k, photos[k]);
+        const next = { ...planConfig, photos: { ...photos, ...moved } };
+        setPlanConfig(next); await save(KEYS.planConfig, next);
+      } catch (e) { console.warn("Menu photo migration to Storage failed; will retry next time", e); }
+    })();
+  }, [ownerAuthed, planConfig]);
 
   const handleSaveContactInfo = useCallback(async (info) => {
     const clean = { phone: (info.phone || "").trim(), whatsapp: (info.whatsapp || "").trim(), email: (info.email || "").trim() };
