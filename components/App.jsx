@@ -2567,8 +2567,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     const res = await onPlaceOrder(order);
     if (res && res.ok === false) {
       // Order was not saved — keep the cart so nothing is lost.
-      window.alert(res.reason === "kitchen_closed"
-        ? "Sorry, the kitchen is closed right now and is not accepting orders. Your order was NOT placed."
+      window.alert(
+        res.reason === "kitchen_closed" ? "Sorry, the kitchen is closed right now and is not accepting orders. Your order was NOT placed."
+        : res.reason === "unavailable" ? `Sorry, something in your cart is no longer available${res.detail && !/PLANS_NOT_AVAILABLE/.test(res.detail) ? ` (${res.detail})` : ""}. The menu has been refreshed — please review your cart. Your order was NOT placed.`
+        : res.reason === "invalid" ? `Your order could not be placed: ${res.detail || "please check your details"}.`
         : "Sorry, your order could not be placed. Please check your connection and try again.");
       if (res.reason === "kitchen_closed") setStep("home");
       return;
@@ -7600,11 +7602,16 @@ export default function App() {
     // charged and stored.
     let authoritativeOrder = null;
     let failure = null;
+    let failureDetail = "";
     try {
       const { error } = await supabase.rpc("place_order", { p_order: order });
       if (error) {
         console.error("[place_order RPC] failed:", error);
-        failure = /KITCHEN_CLOSED/.test(error.message || "") ? "kitchen_closed" : "error";
+        const m = error.message || "";
+        failure = /KITCHEN_CLOSED/.test(m) ? "kitchen_closed"
+          : /PLANS_NOT_AVAILABLE|ITEM_UNAVAILABLE/.test(m) ? "unavailable"
+          : /INVALID_ORDER/.test(m) ? "invalid" : "error";
+        failureDetail = m.replace(/^(ITEM_UNAVAILABLE|INVALID_ORDER):\s*/, "");
       } else {
         const { data: row, error: fetchErr } = await supabase.from("orders").select("*").eq("id", order.id).maybeSingle();
         if (!fetchErr && row) authoritativeOrder = rowToOrder(row);
@@ -7620,7 +7627,9 @@ export default function App() {
     if (failure) {
       setTodayOrders(prev => prev.filter(o => o.id !== order.id));
       if (failure === "kitchen_closed") setKitchenOpen(false);
-      return { ok: false, reason: failure };
+      // Menu/plan changed under the customer — pull fresh config so the screen matches the server.
+      if (failure === "unavailable") catchUpSync();
+      return { ok: false, reason: failure, detail: failureDetail };
     }
 
     if (authoritativeOrder) {
@@ -7640,7 +7649,7 @@ export default function App() {
       return next;
     });
     return { ok: true };
-  }, [todayOrders]);
+  }, [todayOrders, catchUpSync]);
 
   const handleAdvanceOrder = useCallback(async (orderId, nextStatus) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
