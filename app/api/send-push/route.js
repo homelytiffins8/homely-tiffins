@@ -4,9 +4,17 @@ import webpush from "web-push";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Same Staging Supabase project the rest of the app uses.
-const SUPABASE_URL = "https://ktwaesobvvqzzhadrdoa.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
+// Production deploys use the production project; every other deploy (Staging
+// previews) uses staging. Picked from Vercel's own VERCEL_ENV so this file is
+// identical on both branches and a Staging→main promotion can't leave it
+// pointing at the wrong database.
+const IS_PROD = process.env.VERCEL_ENV === "production";
+const SUPABASE_URL = IS_PROD
+  ? "https://locesmksvetbdhsvgqip.supabase.co"
+  : "https://ktwaesobvvqzzhadrdoa.supabase.co";
+const SUPABASE_ANON_KEY = IS_PROD
+  ? "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb"
+  : "sb_publishable_dwkOUIJJ4oU2xIR0l6kDHg_zw9rHkIQ";
 // Service role key bypasses RLS — required because push_subscriptions has no
 // authenticated owner session backing it (same reasoning as reminder-cron's
 // use of a service key for the orders table).
@@ -87,7 +95,9 @@ export async function POST(request) {
   if (phone) {
     query = query.eq("phone", phone);
   } else if (target === "today") {
-    const today = new Date().toISOString().split("T")[0];
+    // orders.date is the India (IST) calendar date — a UTC date would pick
+    // yesterday's customers between midnight and 5:30am IST.
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
     const { data: orders, error: ordersErr } = await supabase
       .from("orders")
       .select("phone")
