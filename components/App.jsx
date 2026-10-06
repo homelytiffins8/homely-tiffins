@@ -2798,7 +2798,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                         />
                       )}
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                          ✨ Homely Gold
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", border: "1px solid #FCD34D", whiteSpace: "nowrap" }}>⭐ Highest Rated</span>
+                        </div>
                         <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
                           Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
                         </div>
@@ -2829,7 +2832,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                         />
                       )}
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>✨ Homely Gold Mini</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                          ✨ Homely Gold Mini
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534", border: "1px solid #86EFAC", whiteSpace: "nowrap" }}>🏆 Top Choice</span>
+                        </div>
                         <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
                           Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
                         </div>
@@ -2853,7 +2859,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                         />
                       )}
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Standard</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                          Homely Standard
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FFEDD5", color: "#9A3412", border: "1px solid #FDBA74", whiteSpace: "nowrap" }}>🔥 Mostly Ordered</span>
+                        </div>
                         <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
                           2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
                         </div>
