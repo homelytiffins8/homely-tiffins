@@ -7371,9 +7371,7 @@ export default function App() {
   // devices during that gap would otherwise be missed forever. This is the
   // safety net that backfills them once the app is active again. ──
   const lastCreditLoadRef = useRef(Date.now()); // boot just loaded the full ledger
-  // Latest values for realtime/polling callbacks that shouldn't re-subscribe on every change.
-  const customersRef = useRef(customers);
-  customersRef.current = customers;
+  // Latest today's orders for the polling callback, without re-creating the interval on every change.
   const todayOrdersRef = useRef(todayOrders);
   todayOrdersRef.current = todayOrders;
   const catchUpSync = useCallback(async () => {
