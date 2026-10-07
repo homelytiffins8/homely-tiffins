@@ -4,35 +4,27 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // ─────────────────────────────────────────────
-// SUPABASE CLIENT — production only (the reminder-call feature runs in
-// production only; this route lives on main, not Staging).
-//
-// Orders live in the `orders` table, whose RLS only lets the signed-in owner
-// read/write, so this cron uses the service role key (bypasses RLS). Built
-// lazily: Next.js runs a route's top-level code during the build, and
-// createClient() throws on a missing key — a module-scope call would fail the
-// whole build in any environment without this secret.
+// SUPABASE CLIENT (same project/key as the main app — this key is already
+// public in the client bundle, so reusing it here is not a new exposure)
 // ─────────────────────────────────────────────
 const SUPABASE_URL = "https://locesmksvetbdhsvgqip.supabase.co";
-let _supabase = null;
-function getSupabase() {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
-  if (!_supabase) _supabase = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  return _supabase;
-}
+const SUPABASE_KEY = "sb_publishable_A24gDavt6HAX7sreGI9vQA_ol2PO1Yb";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const ORDERS_KEY = "ht_orders_today";
 
 // ─────────────────────────────────────────────
 // REMINDER SCHEDULE — 4 calls total, then stop
 // ─────────────────────────────────────────────
 const STAGES = [
-  { key: 1, afterMs: 1 * 60 * 1000, say: "Alert. A new order is pending at Homely Tiffins. Please open your dashboard and respond." },
-  { key: 2, afterMs: 5 * 60 * 1000, say: "Reminder. An order has been pending for five minutes. Please respond now." },
-  { key: 3, afterMs: 10 * 60 * 1000, say: "Urgent reminder. An order has been pending for ten minutes. Please accept or reject it." },
+  { key: 1, afterMs: 30 * 1000, say: "Alert. A new order is pending at Homely Tiffins. Please open your dashboard and respond." },
+  { key: 2, afterMs: 90 * 1000, say: "Reminder. Your order is still pending. Please respond now." },
+  { key: 3, afterMs: 5 * 60 * 1000, say: "Urgent reminder. An order has been pending for five minutes. Please accept or reject it." },
   { key: 4, afterMs: 15 * 60 * 1000, say: "Final reminder. An order has been pending for fifteen minutes with no response." },
 ];
-// Only orders placed within this window are checked. The last stage fires at
-// 15 min, so anything older has either had all its calls or is stale.
-const LOOKBACK_MS = 60 * 60 * 1000;
+
+function todayStr() {
+  return new Date().toISOString().split("T")[0];
+}
 
 async function triggerTwilioCall(stage) {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -72,39 +64,37 @@ export async function GET(request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const supabase = getSupabase();
-  if (!supabase) {
-    console.error("[reminder-cron] SUPABASE_SERVICE_ROLE_KEY not configured in this environment");
-    return Response.json({ ok: false, error: "missing service role key" }, { status: 503 });
-  }
-
-  const since = new Date(Date.now() - LOOKBACK_MS).toISOString();
-  const { data: orders, error } = await supabase
-    .from("orders")
-    .select("id, created_at, extra")
-    .eq("status", "pending")
-    .gte("created_at", since);
+  const { data, error } = await supabase
+    .from("app_data")
+    .select("value")
+    .eq("key", ORDERS_KEY)
+    .maybeSingle();
 
   if (error) {
     return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 
+  const orders = (data && data.value) || [];
+  const today = todayStr();
   const now = Date.now();
   const callsFired = [];
   const errors = [];
+  let changed = false;
 
-  for (const order of orders || []) {
-    const createdAt = new Date(order.created_at).getTime();
+  for (const order of orders) {
+    if (order.status !== "pending" || order.date !== today) continue;
+
+    const createdAt = new Date(order.createdAt).getTime();
     if (!createdAt) continue;
     const elapsed = now - createdAt;
-    const calledStages = Array.isArray(order.extra?.reminderStages) ? [...order.extra.reminderStages] : [];
-    let changed = false;
+    const calledStages = Array.isArray(order.reminderStages) ? order.reminderStages : [];
 
     for (const stage of STAGES) {
       if (elapsed >= stage.afterMs && !calledStages.includes(stage.key)) {
         try {
           await triggerTwilioCall(stage);
           calledStages.push(stage.key);
+          order.reminderStages = calledStages;
           changed = true;
           callsFired.push({ orderId: order.id, stage: stage.key });
         } catch (err) {
@@ -113,18 +103,13 @@ export async function GET(request) {
         }
       }
     }
-
-    if (changed) {
-      // Re-read `extra` just before writing so only reminderStages changes and
-      // anything else the owner's app stored there in the meantime is kept.
-      const { data: fresh } = await supabase.from("orders").select("extra").eq("id", order.id).maybeSingle();
-      const { error: upErr } = await supabase
-        .from("orders")
-        .update({ extra: { ...(fresh?.extra || order.extra || {}), reminderStages: calledStages } })
-        .eq("id", order.id);
-      if (upErr) errors.push({ orderId: order.id, error: upErr.message });
-    }
   }
 
-  return Response.json({ ok: true, callsFired, errors, checked: (orders || []).length });
+  if (changed) {
+    await supabase
+      .from("app_data")
+      .upsert({ key: ORDERS_KEY, value: orders, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  return Response.json({ ok: true, callsFired, errors, checked: orders.length });
 }
