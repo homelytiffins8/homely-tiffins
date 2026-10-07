@@ -236,6 +236,9 @@ function defaultPlanConfig() {
     // bucket (legacy configs may still hold a base64 data URL until the owner
     // next opens the dashboard). Empty string means "no photo".
     photos: { gold: "", standard: "", mini: "", goldMini: "" },
+    // Small thumbnail URL per variant (see makeThumbnailDataUrl). Empty means
+    // "no thumbnail yet" — the menu then falls back to the full photo.
+    photoThumbs: { gold: "", standard: "", mini: "", goldMini: "" },
   };
 }
 
@@ -257,6 +260,7 @@ function normalisePlanConfig(cfg) {
       goldLarge:  oldEnabled.goldLarge  !== undefined ? oldEnabled.goldLarge  : true,
     },
     photos:  { ...d.photos,  ...(cfg.photos  || {}) },
+    photoThumbs: { ...d.photoThumbs, ...(cfg.photoThumbs || {}) },
     prices:  { ...d.prices,  ...(cfg.prices  || {}) },
   };
 }
@@ -285,6 +289,27 @@ function resizeAndCompressImage(file, maxWidth = 1400, quality = 0.85) {
     };
     reader.onerror = () => reject(new Error("Could not read file"));
     reader.readAsDataURL(file);
+  });
+}
+
+// Small copy of a menu photo for the 72px squares on the customer menu.
+// Scales so the SHORTER side is `minSide` px (sharp at 3x screens with
+// object-fit: cover) — roughly 15 KB instead of ~240 KB for the full photo,
+// which now only downloads when a customer taps to enlarge.
+function makeThumbnailDataUrl(dataUrl, minSide = 240, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, minSide / Math.min(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width  * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => reject(new Error("Could not load image"));
+    img.src = dataUrl;
   });
 }
 
@@ -468,6 +493,30 @@ async function loadHistoryOrdersFromTable(excludeDate) {
     if (error) { notifyStorageError("load", "orders(history)", error); return null; }
     return (data || []).map(rowToOrder);
   } catch (err) { notifyStorageError("load", "orders(history)", err); return null; }
+}
+// Catch-up sync only needs the last few days of history (late deliveries,
+// auto-expired orders, yesterday rolling out of "today"). The full history
+// (~700 KB and growing) is loaded once at boot — re-downloading it on every
+// catch-up was the biggest Supabase egress cost.
+const RECENT_HISTORY_DAYS = 3;
+const CREDIT_FULL_RELOAD_MS = 30 * 60 * 1000;
+async function loadRecentHistoryOrdersFromTable(today) {
+  try {
+    const since = new Date(new Date(today + "T00:00:00Z").getTime() - RECENT_HISTORY_DAYS * 86400000).toISOString().split("T")[0];
+    const { data, error } = await supabase.from("orders").select("*").gte("date", since).neq("date", today);
+    if (error) { notifyStorageError("load", "orders(recent history)", error); return null; }
+    return (data || []).map(rowToOrder);
+  } catch (err) { notifyStorageError("load", "orders(recent history)", err); return null; }
+}
+// Lightweight version of today's orders for the 20s polling safety net:
+// only id + status (~60 bytes per order instead of ~850). The full rows are
+// fetched only when this shows something new or further along.
+async function loadTodayOrderStatuses(today) {
+  try {
+    const { data, error } = await supabase.from("orders").select("id,status").eq("date", today);
+    if (error) return null;
+    return data || [];
+  } catch (err) { return null; }
 }
 // Customer-facing read path: the `orders` table has no anon SELECT policy
 // (owner_full_access_orders only grants the authenticated/owner role), so
@@ -736,6 +785,29 @@ async function loadCreditFromTable() {
     }
     return Array.from(byPhone.values());
   } catch (err) { notifyStorageError("load", "credit_ledger", err); return null; }
+}
+// Applies one credit_ledger realtime event to the grouped credit list, so a
+// single new entry doesn't re-download the whole ledger (~210 KB) on every
+// device. DELETE payloads only carry the primary key (id).
+function applyCreditRowChange(list, payload, customers) {
+  const removeId = (groups, id) => groups
+    .map(g => g.entries.some(e => e.id === id) ? { ...g, entries: g.entries.filter(e => e.id !== id) } : g);
+  if (payload.eventType === "DELETE") {
+    const id = payload.old?.id;
+    return id ? removeId(list || [], id).filter(g => g.entries.length > 0) : list;
+  }
+  const row = payload.new;
+  if (!row || !row.id || !row.phone) return list;
+  const entry = rowToCreditEntry(row);
+  let groups = removeId(list || [], row.id).filter(g => g.entries.length > 0 || g.phone === row.phone);
+  if (!groups.some(g => g.phone === row.phone)) {
+    const c = (customers || []).find(x => x.phone === row.phone);
+    groups = [...groups, { phone: row.phone, name: c?.name || "", tower: c?.tower || "", flat: c?.flat || "", entries: [] }];
+  }
+  return groups.map(g => g.phone !== row.phone ? g : {
+    ...g,
+    entries: [...g.entries, entry].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+  });
 }
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -2791,7 +2863,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.gold && (
                         <img
-                          src={planConfig.photos.gold} loading="lazy" decoding="async"
+                          src={planConfig.photoThumbs?.gold || planConfig.photos.gold} loading="lazy" decoding="async"
                           alt="Homely Gold"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.gold, label: "Homely Gold" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2825,7 +2897,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.goldMini && (
                         <img
-                          src={planConfig.photos.goldMini} loading="lazy" decoding="async"
+                          src={planConfig.photoThumbs?.goldMini || planConfig.photos.goldMini} loading="lazy" decoding="async"
                           alt="Homely Gold Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2852,7 +2924,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.standard && (
                         <img
-                          src={planConfig.photos.standard} loading="lazy" decoding="async"
+                          src={planConfig.photoThumbs?.standard || planConfig.photos.standard} loading="lazy" decoding="async"
                           alt="Homely Standard"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.standard, label: "Homely Standard" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -2879,7 +2951,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       {planConfig.photos?.mini && (
                         <img
-                          src={planConfig.photos.mini} loading="lazy" decoding="async"
+                          src={planConfig.photoThumbs?.mini || planConfig.photos.mini} loading="lazy" decoding="async"
                           alt="Homely Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.mini, label: "Homely Mini" })}
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
@@ -3972,6 +4044,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
   const [prices, setPrices] = useState({ ...defaultPlanConfig().prices, ...(base.prices || {}) });
   const [enabled, setEnabled] = useState({ ...defaultPlanConfig().enabled, ...(base.enabled || {}) });
   const [photos, setPhotos] = useState({ ...defaultPlanConfig().photos, ...(base.photos || {}) });
+  const [photoThumbs, setPhotoThumbs] = useState({ ...defaultPlanConfig().photoThumbs, ...(base.photoThumbs || {}) });
   const [uploading, setUploading] = useState({ gold: false, standard: false, mini: false, goldMini: false });
   const [uploadErr, setUploadErr] = useState("");
   const [saved, setSaved] = useState(false);
@@ -3990,16 +4063,25 @@ function PlanMenuEditor({ planConfig, onSave }) {
     try {
       const dataUrl = await resizeAndCompressImage(file);
       let src = dataUrl;
-      try { src = await uploadMenuPhoto(key, dataUrl); }
+      let thumb = "";
+      try {
+        src = await uploadMenuPhoto(key, dataUrl);
+        // Thumbnail is best-effort: if it fails, the menu just shows the full photo.
+        try { thumb = await uploadMenuPhoto(`${key}-thumb`, await makeThumbnailDataUrl(dataUrl)); } catch (e) { thumb = ""; }
+      }
       catch (e) { setUploadErr("Photo storage upload failed — photo kept inside the menu instead (works, but uses more data)."); }
       setPhotos(prev => ({ ...prev, [key]: src }));
+      setPhotoThumbs(prev => ({ ...prev, [key]: thumb }));
     } catch (err) {
       setUploadErr("Could not process image");
     } finally {
       setUploading(prev => ({ ...prev, [key]: false }));
     }
   };
-  const removePhoto = (key) => setPhotos(prev => ({ ...prev, [key]: "" }));
+  const removePhoto = (key) => {
+    setPhotos(prev => ({ ...prev, [key]: "" }));
+    setPhotoThumbs(prev => ({ ...prev, [key]: "" }));
+  };
 
   const filledSabjis = sabjis.filter(s => s.name.trim()).length;
   const ready = filledSabjis === 3 && rice.trim() && salad.trim() && raita.trim() && sweet.trim();
@@ -4023,6 +4105,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
         raita: !!enabled.raita, salad: !!enabled.salad, sweet: !!enabled.sweet,
       },
       photos: { gold: photos.gold || "", standard: photos.standard || "", mini: photos.mini || "", goldMini: photos.goldMini || "" },
+      photoThumbs: { gold: photoThumbs.gold || "", standard: photoThumbs.standard || "", mini: photoThumbs.mini || "", goldMini: photoThumbs.goldMini || "" },
     });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
@@ -7287,6 +7370,12 @@ export default function App() {
   // periods) and don't always auto-recover, so any changes made by other
   // devices during that gap would otherwise be missed forever. This is the
   // safety net that backfills them once the app is active again. ──
+  const lastCreditLoadRef = useRef(Date.now()); // boot just loaded the full ledger
+  // Latest values for realtime/polling callbacks that shouldn't re-subscribe on every change.
+  const customersRef = useRef(customers);
+  customersRef.current = customers;
+  const todayOrdersRef = useRef(todayOrders);
+  todayOrdersRef.current = todayOrders;
   const catchUpSync = useCallback(async () => {
     // Config keys still live in app_data, so fetch and apply those.
     const configKeys = [KEYS.menu, KEYS.planConfig, KEYS.contactInfo, KEYS.kitchenOpen,
@@ -7301,12 +7390,17 @@ export default function App() {
 
     // Everything else now lives in its own table — re-read those directly
     // rather than going through the stale app_data blobs.
+    // History: only the last few days (full history was loaded at boot).
+    // Credit ledger: realtime applies each change as it happens, so the full
+    // ledger is re-read at most every CREDIT_FULL_RELOAD_MS as a safety net.
     const today = todayStr();
+    const reloadCredit = Date.now() - lastCreditLoadRef.current >= CREDIT_FULL_RELOAD_MS;
+    if (reloadCredit) lastCreditLoadRef.current = Date.now();
     const [tOrders, hOrders, custs, cred, msgs, polls] = await Promise.all([
       loadTodayOrdersFromTable(today),
-      loadHistoryOrdersFromTable(today),
+      loadRecentHistoryOrdersFromTable(today),
       loadCustomersFromTable(),
-      loadCreditFromTable(),
+      reloadCredit ? loadCreditFromTable() : Promise.resolve(null),
       loadContactMessagesFromTable(),
       loadPollResponsesFromTable(),
     ]);
@@ -7333,25 +7427,41 @@ export default function App() {
       // to app_data would miss any change written directly to them
       // (e.g. a customer order placed via the place_order RPC).
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async (payload) => {
-        // Only re-read the full history when a past-day order actually changed —
-        // almost every change is to today's orders, and history re-reads were a
-        // big chunk of Supabase egress.
+        // The event already carries the changed row, so merge it directly
+        // instead of re-downloading today's orders / the history on every
+        // change, on every device (a big chunk of Supabase egress).
         const today = todayStr();
-        const d = payload.new?.date ?? payload.old?.date;
-        const t = await loadTodayOrdersFromTable(today);
-        if (t) setTodayOrders(current => mergeOrders(current, t));
-        if ((d && d !== today) || (!d && payload.eventType === "DELETE")) {
-          const h = await loadHistoryOrdersFromTable(today);
-          if (h) setOrdersHistory(current => mergeOrders(current, h));
+        if (payload.eventType === "DELETE") {
+          const id = payload.old?.id;
+          if (id) {
+            setTodayOrders(current => current.filter(o => o.id !== id));
+            setOrdersHistory(current => current.filter(o => o.id !== id));
+          }
+          return;
         }
+        const row = payload.new;
+        if (!row || !row.id || row.items === undefined || row.extra === undefined) {
+          // Incomplete payload — fall back to re-reading today's orders.
+          const t = await loadTodayOrdersFromTable(today);
+          if (t) setTodayOrders(current => mergeOrders(current, t));
+          return;
+        }
+        const order = rowToOrder(row);
+        if (order.date === today) setTodayOrders(current => mergeOrders(current, [order]));
+        else setOrdersHistory(current => mergeOrders(current, [order]));
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, async () => {
-        const rows = await loadCustomersFromTable();
-        if (rows) setCustomers(rows);
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, async (payload) => {
+        if (payload.eventType === "DELETE") {
+          const phone = payload.old?.phone;
+          if (phone) setCustomers(current => current.filter(c => c.phone !== phone));
+          return;
+        }
+        if (!payload.new?.phone) return;
+        const c = rowToCustomer(payload.new);
+        setCustomers(current => [...current.filter(x => x.phone !== c.phone), c]);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "credit_ledger" }, async () => {
-        const rows = await loadCreditFromTable();
-        if (rows) setCredit(rows);
+      .on("postgres_changes", { event: "*", schema: "public", table: "credit_ledger" }, async (payload) => {
+        setCredit(current => applyCreditRowChange(current, payload, customersRef.current));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "contact_messages" }, async () => {
         const rows = await loadContactMessagesFromTable();
@@ -7413,8 +7523,17 @@ export default function App() {
   // Previously the full catch-up ran every 20s and was the main Supabase egress cost.
   useEffect(() => {
     if (!loaded || !(route === "owner" && ownerAuthed)) return;
+    // Checks only id + status; full rows are fetched only if an order is new
+    // or further along than what this device already has.
     const pollToday = async () => {
-      const t = await loadTodayOrdersFromTable(todayStr());
+      const today = todayStr();
+      const statuses = await loadTodayOrderStatuses(today);
+      if (!statuses) return;
+      const local = new Map(todayOrdersRef.current.map(o => [o.id, o.status]));
+      const behind = statuses.some(s => !local.has(s.id) ||
+        (STATUS_RANK[s.status] ?? -1) > (STATUS_RANK[local.get(s.id)] ?? -1));
+      if (!behind) return;
+      const t = await loadTodayOrdersFromTable(today);
       if (t) setTodayOrders(current => mergeOrders(current, t));
     };
     const id = setInterval(pollToday, 20000);
