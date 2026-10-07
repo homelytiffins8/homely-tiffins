@@ -25,9 +25,9 @@ function getSupabase() {
 // REMINDER SCHEDULE — 4 calls total, then stop
 // ─────────────────────────────────────────────
 const STAGES = [
-  { key: 1, afterMs: 30 * 1000, say: "Alert. A new order is pending at Homely Tiffins. Please open your dashboard and respond." },
-  { key: 2, afterMs: 90 * 1000, say: "Reminder. Your order is still pending. Please respond now." },
-  { key: 3, afterMs: 5 * 60 * 1000, say: "Urgent reminder. An order has been pending for five minutes. Please accept or reject it." },
+  { key: 1, afterMs: 1 * 60 * 1000, say: "Alert. A new order is pending at Homely Tiffins. Please open your dashboard and respond." },
+  { key: 2, afterMs: 5 * 60 * 1000, say: "Reminder. An order has been pending for five minutes. Please respond now." },
+  { key: 3, afterMs: 10 * 60 * 1000, say: "Urgent reminder. An order has been pending for ten minutes. Please accept or reject it." },
   { key: 4, afterMs: 15 * 60 * 1000, say: "Final reminder. An order has been pending for fifteen minutes with no response." },
 ];
 // Only orders placed within this window are checked. The last stage fires at
