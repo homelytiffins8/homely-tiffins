@@ -2919,7 +2919,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", border: "1px solid #FCD34D", whiteSpace: "nowrap" }}>⭐ Highest Rated</span>
                         </div>
                         <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
+                          Choice of 2 sabjis (inc premium) + Choice of breads + Special Rice + Choice of sides + Salad for the day
                         </div>
                         <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4, fontWeight: 600 }}>
                           {planConfig.enabled?.goldMedium && planConfig.enabled?.goldLarge ? "Available in Medium & Large" : planConfig.enabled?.goldLarge ? "Large only today" : "Medium only today"}
