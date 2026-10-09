@@ -1449,6 +1449,85 @@ function PhotoPreviewModal({ src, label, onClose }) {
 }
 
 // ─────────────────────────────────────────────
+// TODAY'S DISHES (customer) — the day's published sabjis and sides, read
+// from the same planConfig that PlanChoiceModal customizes from. planConfig
+// only changes when the owner taps "Publish Today's Plans" (the editor keeps
+// drafts in local state), so unpublished edits never reach customers.
+// ─────────────────────────────────────────────
+function TodaysDishes({ planConfig }) {
+  const isToday = !!planConfig && planConfig.date === todayStr();
+  const sabjis = isToday ? (planConfig.sabjis || []).filter(s => s && s.name && s.name.trim()) : [];
+  const one = (v) => (isToday && typeof v === "string" && v.trim() ? [v.trim()] : []);
+  const rows = [
+    { key: "premium",  label: "⭐ Premium sabji", items: sabjis.filter(s => s.premium).map(s => s.name.trim()) },
+    { key: "standard", label: "Standard sabjis",  items: sabjis.filter(s => !s.premium).map(s => s.name.trim()) },
+    { key: "rice",     label: "Rice of the day",  items: one(planConfig?.rice) },
+    { key: "raita",    label: "Raita of the day", items: one(planConfig?.raita) },
+    { key: "sweet",    label: "Sweet of the day", items: one(planConfig?.sweet) },
+    { key: "salad",    label: "Salad of the day", items: one(planConfig?.salad) },
+  ].filter(r => r.items.length > 0);
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🥘 Today's Dishes</h2>
+      {rows.length === 0 ? (
+        <div className="ht-card slide-in" style={{ padding: "16px 18px", textAlign: "center", background: C.saffronLight, border: `1px dashed ${C.saffronMid}` }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.ink }}>Today's dishes aren't published yet</div>
+          <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>Check back soon — today's sabjis and sides will appear here once the kitchen publishes them.</div>
+        </div>
+      ) : (
+        <div className="ht-card slide-in" style={{ padding: "4px 16px" }}>
+          {rows.map((r, i) => (
+            <div key={r.key} style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "9px 0", borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div style={{ width: 108, flexShrink: 0, fontSize: 11.5, fontWeight: 700, color: r.key === "premium" ? C.saffron : C.inkLight, lineHeight: 1.4 }}>{r.label}</div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: C.ink, lineHeight: 1.4, overflowWrap: "anywhere" }}>{r.items.join(" · ")}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Customer-facing summary of each plan, built from today's published
+// planConfig. Mirrors the eligibility rules in PlanChoiceModal below (Gold and
+// Gold Mini may pick the premium sabji; Standard fixes the two non-premium
+// sabjis; Mini picks one of them) — keep the two in sync.
+function planSummaries(planConfig) {
+  const nonPremium = (planConfig.sabjis || []).filter(s => !s.premium).slice(0, 2).map(s => s.name);
+  const raitaOrSweet = `${planConfig.raita} or ${planConfig.sweet} (pick 1)`;
+  return {
+    gold: {
+      choice: "Choose any 2 of today's sabjis, including premium.",
+      includes: [BREAD_CHOICES.map(b => b.label).join(" or "), planConfig.rice, raitaOrSweet, planConfig.salad],
+    },
+    goldMini: {
+      choice: "Choose 1 of today's sabjis, including premium.",
+      includes: ["4 Ghee Chapati", raitaOrSweet, planConfig.salad],
+    },
+    standard: {
+      choice: `Includes ${nonPremium.join(" + ")}.`,
+      includes: ["4 Chapati", "Steamed Rice (or swap for 2 extra chapatis)", "Standard Salad"],
+    },
+    mini: {
+      choice: `Choose 1: ${nonPremium.join(" or ")}.`,
+      includes: ["4 Chapati (or swap for Steamed Rice)", "Standard Salad"],
+    },
+  };
+}
+
+function PlanSummaryText({ summary }) {
+  return (
+    <>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{summary.choice}</div>
+      <div style={{ fontSize: 12, color: C.inkMid, marginTop: 3, lineHeight: 1.5 }}>
+        <span style={{ fontWeight: 700, color: C.green }}>✓ Included:</span> {summary.includes.join(" · ")}
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────
 // PLAN CHOICE MODAL (customer) — Homely Gold / Mini customization
 // ─────────────────────────────────────────────
 function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
@@ -1820,11 +1899,11 @@ function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout
         <div style={{ marginBottom: 18 }}>
           {extraItems.map(item => (
             <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div>
+              <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingRight: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{item.name}</div>
                 <div style={{ fontSize: 13, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                 <button className="ht-btn btn-secondary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, -1)}>−</button>
                 <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: "center", color: C.ink }}>{cart[item.id] || 0}</span>
                 <button className="ht-btn btn-primary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, 1)}>+</button>
@@ -2853,6 +2932,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <span style={{ marginLeft: "auto", fontSize: 12, color: C.inkLight }}>{fmtDate(todayStr())}</span>
           </div>
 
+          {/* ── TODAY'S DISHES: published sabjis + sides, before choosing a plan ── */}
+          <TodaysDishes planConfig={planConfig} />
+
           {/* ── MEAL PLANS: Homely Gold / Standard / Mini ── */}
           {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini || planConfig.enabled?.goldMini) && (
             <div style={{ marginBottom: 16 }}>
@@ -2869,14 +2951,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
                         />
                       )}
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           ✨ Homely Gold
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", border: "1px solid #FCD34D", whiteSpace: "nowrap" }}>⭐ Highest Rated</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
-                        </div>
+                        <PlanSummaryText summary={planSummaries(planConfig).gold} />
                         <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4, fontWeight: 600 }}>
                           {planConfig.enabled?.goldMedium && planConfig.enabled?.goldLarge ? "Available in Medium & Large" : planConfig.enabled?.goldLarge ? "Large only today" : "Medium only today"}
                         </div>
@@ -2903,14 +2983,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
                         />
                       )}
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           ✨ Homely Gold Mini
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534", border: "1px solid #86EFAC", whiteSpace: "nowrap" }}>🏆 Top Choice</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
-                        </div>
+                        <PlanSummaryText summary={planSummaries(planConfig).goldMini} />
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
@@ -2930,14 +3008,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
                         />
                       )}
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           Homely Standard
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FFEDD5", color: "#9A3412", border: "1px solid #FDBA74", whiteSpace: "nowrap" }}>🔥 Mostly Ordered</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
-                        </div>
+                        <PlanSummaryText summary={planSummaries(planConfig).standard} />
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
@@ -2957,11 +3033,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
                         />
                       )}
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
-                          Choice of 1 sabji + 4 chapatis + standard salad
-                        </div>
+                        <PlanSummaryText summary={planSummaries(planConfig).mini} />
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
@@ -2978,7 +3052,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   <h3 style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Your Selections</h3>
                   {Object.entries(planCartMeta).filter(([id]) => cart[id]).map(([id, m]) => (
                     <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                      <div style={{ flex: 1, paddingRight: 10 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingRight: 10 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{m.name}</div>
                         <div style={{ fontSize: 12, color: C.saffron, fontWeight: 700 }}>₹{m.price}</div>
                       </div>
@@ -2997,15 +3071,16 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           {/* ── TODAY'S EXTRAS: Raita / Salad / Sweet ── */}
           {plansAvailable && extraItems.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🥗 Today's Extras</h2>
+              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 2 }}>🥗 Today's Extras</h2>
+              <div style={{ fontSize: 11.5, color: C.inkMid, marginBottom: 10 }}>Optional add-ons, charged separately — not needed for the sides already included in your plan.</div>
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {extraItems.map(item => (
                   <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingRight: 10 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{item.name}</div>
                       <div style={{ fontSize: 13, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       <button className="ht-btn btn-secondary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, -1)}>−</button>
                       <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: "center", color: C.ink }}>{cart[item.id] || 0}</span>
                       <button className="ht-btn btn-primary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, 1)}>+</button>
@@ -3023,11 +3098,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {menuItems.map(item => (
                   <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", paddingRight: 10 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{item.name}</div>
                       <div style={{ fontSize: 13, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       <button className="ht-btn btn-secondary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, -1)}>−</button>
                       <span style={{ fontSize: 15, fontWeight: 700, minWidth: 22, textAlign: "center", color: C.ink }}>{cart[item.id] || 0}</span>
                       <button className="ht-btn btn-primary btn-sm" style={{ width: 32, height: 32, padding: 0, borderRadius: "50%", fontSize: 18 }} onClick={() => setQty(item.id, 1)}>+</button>
