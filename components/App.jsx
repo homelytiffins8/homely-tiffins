@@ -1489,44 +1489,6 @@ function TodaysDishes({ planConfig }) {
   );
 }
 
-// Customer-facing summary of each plan, built from today's published
-// planConfig. Mirrors the eligibility rules in PlanChoiceModal below (Gold and
-// Gold Mini may pick the premium sabji; Standard fixes the two non-premium
-// sabjis; Mini picks one of them) — keep the two in sync.
-function planSummaries(planConfig) {
-  const nonPremium = (planConfig.sabjis || []).filter(s => !s.premium).slice(0, 2).map(s => s.name);
-  const raitaOrSweet = `${planConfig.raita} or ${planConfig.sweet} (pick 1)`;
-  return {
-    gold: {
-      choice: "Choose any 2 of today's sabjis, including premium.",
-      includes: [BREAD_CHOICES.map(b => b.label).join(" or "), planConfig.rice, raitaOrSweet, planConfig.salad],
-    },
-    goldMini: {
-      choice: "Choose 1 of today's sabjis, including premium.",
-      includes: ["4 Ghee Chapati", raitaOrSweet, planConfig.salad],
-    },
-    standard: {
-      choice: `Includes ${nonPremium.join(" + ")}.`,
-      includes: ["4 Chapati", "Steamed Rice (or swap for 2 extra chapatis)", "Standard Salad"],
-    },
-    mini: {
-      choice: `Choose 1: ${nonPremium.join(" or ")}.`,
-      includes: ["4 Chapati (or swap for Steamed Rice)", "Standard Salad"],
-    },
-  };
-}
-
-function PlanSummaryText({ summary }) {
-  return (
-    <>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{summary.choice}</div>
-      <div style={{ fontSize: 12, color: C.inkMid, marginTop: 3, lineHeight: 1.5 }}>
-        <span style={{ fontWeight: 700, color: C.green }}>✓ Included:</span> {summary.includes.join(" · ")}
-      </div>
-    </>
-  );
-}
-
 // ─────────────────────────────────────────────
 // PLAN CHOICE MODAL (customer) — Homely Gold / Mini customization
 // ─────────────────────────────────────────────
@@ -2956,7 +2918,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           ✨ Homely Gold
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", border: "1px solid #FCD34D", whiteSpace: "nowrap" }}>⭐ Highest Rated</span>
                         </div>
-                        <PlanSummaryText summary={planSummaries(planConfig).gold} />
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 2 sabjis + Choice of breads + Rice for the day + Choice of sides + Salad for the day
+                        </div>
                         <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4, fontWeight: 600 }}>
                           {planConfig.enabled?.goldMedium && planConfig.enabled?.goldLarge ? "Available in Medium & Large" : planConfig.enabled?.goldLarge ? "Large only today" : "Medium only today"}
                         </div>
@@ -2988,7 +2952,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           ✨ Homely Gold Mini
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534", border: "1px solid #86EFAC", whiteSpace: "nowrap" }}>🏆 Top Choice</span>
                         </div>
-                        <PlanSummaryText summary={planSummaries(planConfig).goldMini} />
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
+                        </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
@@ -3013,7 +2979,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                           Homely Standard
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FFEDD5", color: "#9A3412", border: "1px solid #FDBA74", whiteSpace: "nowrap" }}>🔥 Mostly Ordered</span>
                         </div>
-                        <PlanSummaryText summary={planSummaries(planConfig).standard} />
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
+                        </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
@@ -3035,7 +3003,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                       )}
                       <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
-                        <PlanSummaryText summary={planSummaries(planConfig).mini} />
+                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                          Choice of 1 sabji + 4 chapatis + standard salad
+                        </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
