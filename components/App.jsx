@@ -485,6 +485,14 @@ async function loadTodayOrdersFromTable(today) {
     return (data || []).map(rowToOrder);
   } catch (err) { notifyStorageError("load", "orders(today)", err); return null; }
 }
+// Adds one order (looked up by id) to a list when it isn't in today's rows.
+async function withCarriedOverOrder(list, orderId) {
+  try {
+    const { data, error } = await supabase.from("orders").select("*").eq("id", orderId).maybeSingle();
+    if (error || !data) return list;
+    return [rowToOrder(data), ...list];
+  } catch { return list; }
+}
 async function loadHistoryOrdersFromTable(excludeDate) {
   try {
     let q = supabase.from("orders").select("*").order("created_at", { ascending: false }).limit(5000);
@@ -7782,7 +7790,10 @@ export default function App() {
     const today = todayStr();
     const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
-    const base = mergeOrders(localToday, serverOrders);
+    let base = mergeOrders(localToday, serverOrders);
+    // An order placed before midnight (e.g. 11:59 PM) still being worked on after
+    // the date rolls over is not in today's list — fetch it by id so it can advance.
+    if (!base.some(o => o.id === orderId)) base = await withCarriedOverOrder(base, orderId);
     const order = base.find(o => o.id === orderId);
     if (!order) return;
 
@@ -7918,7 +7929,8 @@ export default function App() {
     const today = todayStr();
     const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
     const localToday = todayOrders.filter(o => o.date === today);
-    const base = mergeOrders(localToday, serverOrders);
+    let base = mergeOrders(localToday, serverOrders);
+    if (!base.some(o => o.id === orderId)) base = await withCarriedOverOrder(base, orderId);
     const order = base.find(o => o.id === orderId);
     if (!order) return;
 
