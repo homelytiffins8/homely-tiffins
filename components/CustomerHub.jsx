@@ -1498,7 +1498,7 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
           </h2>
           <div aria-hidden="true" style={{ width: "88%", height: "0.7cqw", borderRadius: 999, background: "linear-gradient(90deg, #E8781A, rgba(232,120,26,0.15))", margin: "1.6cqw 0 2cqw" }} />
           <p style={{ fontSize: "3.1cqw", lineHeight: 1.38, margin: 0, color: "#5A3826" }}>
-            Tell us your favourite dishes and how you like them, and we'll plan meals you'll enjoy.
+            Tell us what you love and we'll plan meals you'll enjoy.
           </p>
         </div>
         <div style={{ position: "absolute", left: "4%", right: "4%", bottom: "3.6cqw", display: "flex", alignItems: "center", gap: "3cqw", background: "rgba(255,248,238,0.96)", borderRadius: "3cqw", padding: "2.2cqw 3.4cqw", fontSize: "3cqw", lineHeight: 1.3, fontWeight: 600, color: "#4A2A18" }}>
