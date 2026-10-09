@@ -1458,32 +1458,79 @@ function TodaysDishes({ planConfig }) {
   const isToday = !!planConfig && planConfig.date === todayStr();
   const sabjis = isToday ? (planConfig.sabjis || []).filter(s => s && s.name && s.name.trim()) : [];
   const one = (v) => (isToday && typeof v === "string" && v.trim() ? [v.trim()] : []);
-  const rows = [
-    { key: "premium",  label: "⭐ Premium sabji", items: sabjis.filter(s => s.premium).map(s => s.name.trim()) },
-    { key: "standard", label: "Standard sabjis",  items: sabjis.filter(s => !s.premium).map(s => s.name.trim()) },
-    { key: "rice",     label: "Rice of the day",  items: one(planConfig?.rice) },
-    { key: "raita",    label: "Raita of the day", items: one(planConfig?.raita) },
-    { key: "sweet",    label: "Sweet of the day", items: one(planConfig?.sweet) },
-    { key: "salad",    label: "Salad of the day", items: one(planConfig?.salad) },
-  ].filter(r => r.items.length > 0);
+  const premium = sabjis.filter(s => s.premium).map(s => s.name.trim());
+  const standard = sabjis.filter(s => !s.premium).map(s => s.name.trim());
+  const sides = [
+    { key: "rice",  label: "Rice",  value: one(planConfig?.rice)[0] },
+    { key: "raita", label: "Raita", value: one(planConfig?.raita)[0] },
+    { key: "sweet", label: "Sweet", value: one(planConfig?.sweet)[0] },
+    { key: "salad", label: "Salad", value: one(planConfig?.salad)[0] },
+  ].filter(x => x.value);
+  // Only the groups that were actually published, so dividers sit between real content.
+  const groups = [premium.length > 0 && "premium", standard.length > 0 && "standard", sides.length > 0 && "sides"].filter(Boolean);
+
+  const serif = "'Playfair Display', Georgia, serif";
+  const divider = `1px solid ${HC.dash}`;
+  const dishIcon = (emoji) => (
+    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{emoji}</div>
+  );
+  const groupStyle = (key) => ({ padding: "14px 0", borderTop: groups.indexOf(key) > 0 ? divider : "none" });
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🥘 Today's Dishes</h2>
-      {rows.length === 0 ? (
-        <div className="ht-card slide-in" style={{ padding: "16px 18px", textAlign: "center", background: C.saffronLight, border: `1px dashed ${C.saffronMid}` }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.ink }}>Today's dishes aren't published yet</div>
-          <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>Check back soon — today's sabjis and sides will appear here once the kitchen publishes them.</div>
+    <div className="slide-in" style={{ marginBottom: 20, background: "#FDEFDB", border: "1px solid #F6DCBC", borderRadius: 20, padding: "18px 18px 6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+        <h2 style={{ fontFamily: serif, fontSize: 21, fontWeight: 600, color: HC.brown, margin: 0, lineHeight: 1.2 }}>Today's Kitchen</h2>
+        {groups.length > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: HC.orangeDeep, whiteSpace: "nowrap" }}>Fresh today</span>}
+      </div>
+
+      {groups.length === 0 ? (
+        <div style={{ padding: "8px 0 14px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: HC.brown }}>Today's dishes aren't published yet</div>
+          <div style={{ fontSize: 12.5, color: HC.brownMid, marginTop: 4, lineHeight: 1.5 }}>Check back soon — today's sabjis and sides will appear here once the kitchen publishes them.</div>
         </div>
       ) : (
-        <div className="ht-card slide-in" style={{ padding: "4px 16px" }}>
-          {rows.map((r, i) => (
-            <div key={r.key} style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "9px 0", borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div style={{ width: 108, flexShrink: 0, fontSize: 11.5, fontWeight: 700, color: r.key === "premium" ? C.saffron : C.inkLight, lineHeight: 1.4 }}>{r.label}</div>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: C.ink, lineHeight: 1.4, overflowWrap: "anywhere" }}>{r.items.join(" · ")}</div>
+        <>
+          <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Sharma Aunty is cooking.</div>
+
+          {premium.length > 0 && (
+            <div style={groupStyle("premium")}>
+              {premium.map(name => (
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {dishIcon("🍛")}
+                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 600, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" }}>Premium · Gold plans</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: HC.brown, lineHeight: 1.3 }}>{name}</div>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+
+          {standard.length > 0 && (
+            <div style={{ ...groupStyle("standard"), display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px 14px" }}>
+              {standard.map((name, i) => (
+                <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  {dishIcon(i % 2 === 0 ? "🥘" : "🍲")}
+                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: HC.brown, lineHeight: 1.3 }}>{name}</div>
+                    <div style={{ fontSize: 12, color: HC.brownMid }}>Standard sabji</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {sides.length > 0 && (
+            <div style={{ ...groupStyle("sides"), display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
+              {sides.map(x => (
+                <div key={x.key} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                  <div style={{ fontSize: 11.5, color: HC.brownMid }}>{x.label}</div>
+                  <div style={{ fontSize: 13.5, color: HC.brown, lineHeight: 1.35, marginTop: 1 }}>{x.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
