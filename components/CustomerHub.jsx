@@ -1488,11 +1488,11 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
       </div>
       {/* Banner: illustrated background (public/pref-banner.jpg, 1200x632) with live text on top.
           Everything inside is sized in cqw (container width) so it scales like the picture on any phone. */}
-      <div data-testid="pref-hero" style={{ containerType: "inline-size", position: "relative", width: "100%", aspectRatio: "1200 / 632", borderRadius: 20, overflow: "hidden", marginBottom: 14, backgroundColor: "#FDF5EB", backgroundImage: "url(/pref-banner.jpg)", backgroundSize: "100% 100%", boxShadow: "0 10px 26px rgba(120,60,10,0.18)" }}>
-        <div style={{ position: "absolute", left: "5%", top: "7%", display: "inline-flex", alignItems: "center", gap: "1.6cqw", background: "rgba(251,233,212,0.92)", borderRadius: 999, padding: "1.4cqw 3.4cqw", fontSize: "3cqw", fontWeight: 600, color: "#4A2A18", whiteSpace: "nowrap" }}>
+      <div data-testid="pref-hero" style={{ containerType: "inline-size", position: "relative", width: "100%", aspectRatio: "1200 / 810", borderRadius: 20, overflow: "hidden", marginBottom: 14, backgroundColor: "#F0872F", background: "url(/pref-banner.jpg) top / 100% auto no-repeat, linear-gradient(90deg, rgb(234,130,45), rgb(242,136,48) 50%, rgb(247,148,57) 75%, rgb(243,128,39))", boxShadow: "0 10px 26px rgba(120,60,10,0.18)" }}>
+        <div style={{ position: "absolute", left: "5%", top: "3.8cqw", display: "inline-flex", alignItems: "center", gap: "1.6cqw", background: "rgba(251,233,212,0.92)", borderRadius: 999, padding: "1.4cqw 3.4cqw", fontSize: "3cqw", fontWeight: 600, color: "#4A2A18", whiteSpace: "nowrap" }}>
           <span aria-hidden="true">⏱️</span> Takes about 30 seconds
         </div>
-        <div style={{ position: "absolute", left: "5%", top: "21%", width: "56%" }}>
+        <div style={{ position: "absolute", left: "5%", top: "11.5cqw", width: "56%" }}>
           <h2 style={{ fontSize: "5.4cqw", fontWeight: 800, lineHeight: 1.12, margin: 0, color: "#3A1608", letterSpacing: "-0.01em" }}>
             {data.first_name ? `${data.first_name}, what` : "What"} do you love to eat? <span aria-hidden="true">😋</span>
           </h2>
@@ -1501,7 +1501,7 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
             Tell us your favourite dishes and how you like them, and we'll plan meals you'll enjoy.
           </p>
         </div>
-        <div style={{ position: "absolute", left: "5%", right: "5%", bottom: "5%", display: "flex", alignItems: "center", gap: "3cqw", background: "rgba(255,248,238,0.96)", borderRadius: "3cqw", padding: "2.2cqw 3.4cqw", fontSize: "3cqw", lineHeight: 1.3, fontWeight: 600, color: "#4A2A18" }}>
+        <div style={{ position: "absolute", left: "4%", right: "4%", bottom: "3.6cqw", display: "flex", alignItems: "center", gap: "3cqw", background: "rgba(255,248,238,0.96)", borderRadius: "3cqw", padding: "2.2cqw 3.4cqw", fontSize: "3cqw", lineHeight: 1.3, fontWeight: 600, color: "#4A2A18" }}>
           <span aria-hidden="true" style={{ fontSize: "5cqw" }}>🔁</span>
           <span style={{ flex: 1 }}>No time now? Skip it — this form will open again after every 2nd order until you save your answers.</span>
         </div>
