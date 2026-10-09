@@ -1486,10 +1486,28 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
         <button className="ht-btn btn-ghost btn-sm" onClick={skip} data-testid="pref-skip-top">Skip for now</button>
       </div>
+      {/* Banner: illustrated background (public/pref-banner.jpg, 1200x632) with live text on top.
+          Everything inside is sized in cqw (container width) so it scales like the picture on any phone. */}
+      <div data-testid="pref-hero" style={{ containerType: "inline-size", position: "relative", width: "100%", aspectRatio: "1200 / 810", borderRadius: 20, overflow: "hidden", marginBottom: 14, backgroundColor: "#F0872F", background: "url(/pref-banner.jpg) top / 100% auto no-repeat, linear-gradient(90deg, rgb(234,130,45), rgb(242,136,48) 50%, rgb(247,148,57) 75%, rgb(243,128,39))", boxShadow: "0 10px 26px rgba(120,60,10,0.18)" }}>
+        <div style={{ position: "absolute", left: "5%", top: "3.8cqw", display: "inline-flex", alignItems: "center", gap: "1.6cqw", background: "rgba(251,233,212,0.92)", borderRadius: 999, padding: "1.4cqw 3.4cqw", fontSize: "3cqw", fontWeight: 600, color: "#4A2A18", whiteSpace: "nowrap" }}>
+          <span aria-hidden="true">⏱️</span> Takes about 30 seconds
+        </div>
+        <div style={{ position: "absolute", left: "5%", top: "11.5cqw", width: "56%" }}>
+          <h2 style={{ fontSize: "5.4cqw", fontWeight: 800, lineHeight: 1.12, margin: 0, color: "#3A1608", letterSpacing: "-0.01em" }}>
+            {data.first_name ? `${data.first_name}, what` : "What"} do you love to eat? <span aria-hidden="true">😋</span>
+          </h2>
+          <div aria-hidden="true" style={{ width: "88%", height: "0.7cqw", borderRadius: 999, background: "linear-gradient(90deg, #E8781A, rgba(232,120,26,0.15))", margin: "1.6cqw 0 2cqw" }} />
+          <p style={{ fontSize: "3.1cqw", lineHeight: 1.38, margin: 0, color: "#5A3826" }}>
+            Tell us what you love and we'll plan meals you'll enjoy.
+          </p>
+        </div>
+        <div style={{ position: "absolute", left: "4%", right: "4%", bottom: "3.6cqw", display: "flex", alignItems: "center", gap: "3cqw", background: "rgba(255,248,238,0.96)", borderRadius: "3cqw", padding: "2.2cqw 3.4cqw", fontSize: "3cqw", lineHeight: 1.3, fontWeight: 600, color: "#4A2A18" }}>
+          <span aria-hidden="true" style={{ fontSize: "5cqw" }}>🔁</span>
+          <span style={{ flex: 1 }}>No time now? Skip it — this form will open again after every 2nd order until you save your answers.</span>
+        </div>
+      </div>
       <Card>
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, margin: "0 0 4px" }}>Tell us your food preferences{data.first_name ? `, ${data.first_name}` : ""}</h2>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, margin: "0 0 8px" }}>Just one time, and it takes only 30 seconds.</div>
-        <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.55 }}>Everything here is optional. Your answers help us suggest meals you'll like. They don't guarantee we can customise every order.</p>
+        <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.55, margin: 0 }}>Everything here is optional. Your answers help us suggest meals you'll like. They don't guarantee we can customise every order.</p>
         {showObs && <p style={{ fontSize: 12, color: C.inkLight, marginTop: 6 }}>For reference, what we've delivered to you most often: {obsAll.join(", ")}. {obsDiffers ? "Your answers below are different — that's fine, we'll go by what you tell us." : "Tell us what you actually like below."}</p>}
       </Card>
       <Q title="Favourite sabjis & dals" hint="Pick any, or add your own."><Chips field="fav_dishes" options={data.main_options} a={a} setA={setA} /></Q>
@@ -1551,8 +1569,8 @@ export function PreferencePromoCard({ supabase, C = DEFAULT_C, orderId, style, r
 // ═════════════════════════════════════════════════════════════
 // CUSTOMER-FACING: AUTO-OPEN AFTER AN ORDER
 // Opens the form over the order page once an order is placed, until the
-// customer has saved it. Skipping closes it; it opens again after their next
-// order. Never blocks ordering: any failure just closes it quietly.
+// customer has saved it, but only on every 2nd order (2, 4, 6…). Skipping closes
+// it; it opens again after their next even-numbered order. Never blocks ordering: any failure just closes it quietly.
 // ═════════════════════════════════════════════════════════════
 export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose }) {
   const [token, setToken] = useState(null);
@@ -1566,6 +1584,8 @@ export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose
           const s = await callRpc(supabase, "pref_form_status_for_order", { p_order_id: orderId });
           if (s && s.ok) {
             if (s.completed) { if (live) onClose(); return; }
+            // Only after every 2nd order (2, 4, 6…). order_no is missing until the DB function is updated; then show as before.
+            if (typeof s.order_no === "number" && s.order_no % 2 !== 0) { if (live) onClose(); return; }
             const t = await callRpc(supabase, "pref_form_token_for_order", { p_order_id: orderId });
             if (t && t.ok) { if (live) setToken(t.token); return; }
           }
