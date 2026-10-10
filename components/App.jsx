@@ -3329,6 +3329,15 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         * { box-sizing: border-box; }
         .h5-testimonials::-webkit-scrollbar { display: none; }
         .h5-testimonials { scrollbar-width: none; }
+        @keyframes h5-ring { 0%,60%,100% { transform: rotate(0); } 64% { transform: rotate(16deg); } 68% { transform: rotate(-14deg); } 72% { transform: rotate(10deg); } 76% { transform: rotate(-8deg); } 80% { transform: rotate(4deg); } 84% { transform: rotate(0); } }
+        @keyframes h5-ripple { 0% { box-shadow: 0 0 0 0 rgba(224,115,26,0.45); } 70% { box-shadow: 0 0 0 10px rgba(224,115,26,0); } 100% { box-shadow: 0 0 0 0 rgba(224,115,26,0); } }
+        @keyframes h5-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+        .h5-notif-btn { animation: h5-ripple 2s ease-out infinite; }
+        .h5-notif-bell { display: inline-block; transform-origin: 50% 10%; animation: h5-ring 2.6s ease-in-out infinite; }
+        .h5-live-dot { animation: h5-blink 1.4s infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .h5-notif-btn, .h5-notif-bell, .h5-live-dot { animation: none; }
+        }
       `}</style>
 
       {/* ═══════ SECTION 1 — HEADER (logo + wordmark) ═══════ */}
@@ -3423,20 +3432,36 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         )}
 
         {knownPhone && notifStatus === "default" && (
-          <button
-            onClick={handleEnableNotifications}
-            disabled={notifBusy}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              marginTop: 8, padding: "8px 16px",
-              background: "#fff", color: HC.orange, border: `1.5px solid ${HC.orange}`,
-              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
-              fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
-              opacity: notifBusy ? 0.6 : 1,
-            }}
-          >
-            {notifBusy ? "Enabling…" : "🔔 Get order updates"}
-          </button>
+          <div style={{ marginTop: 8 }}>
+            <button
+              className={notifBusy ? undefined : "h5-notif-btn"}
+              onClick={handleEnableNotifications}
+              disabled={notifBusy}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px",
+                background: HC.orange, color: "#fff", border: `1.5px solid ${HC.orange}`,
+                borderRadius: 999, fontFamily: "'Nunito', sans-serif",
+                fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
+                opacity: notifBusy ? 0.6 : 1,
+              }}
+            >
+              {notifBusy ? "Enabling…" : (
+                <><span className="h5-notif-bell">🔔</span>Get order updates</>
+              )}
+            </button>
+            <div style={{
+              display: "flex", alignItems: "flex-start", gap: 6,
+              marginTop: 6, maxWidth: 340,
+              fontSize: 12, color: HC.brownMid, lineHeight: 1.4,
+            }}>
+              <span className="h5-live-dot" style={{
+                width: 7, height: 7, borderRadius: "50%", background: "#2E7D32",
+                flexShrink: 0, marginTop: 5,
+              }} />
+              <span>Get live status for your order: Accepted → Preparing → Ready → Dispatched → Delivered</span>
+            </div>
+          </div>
         )}
         {knownPhone && notifStatus === "granted" && (
           <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D32", fontWeight: 700 }}>
