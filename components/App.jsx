@@ -7741,7 +7741,7 @@ export default function App() {
       changed.forEach(o => {
         const msg = o.status === "rejected"
           ? "Sorry — your order couldn't be accepted today. Please call us for details."
-          : "Delivered! Enjoy your meal 🍱";
+          : "Delivered! Enjoy your meal ❤️";
         sendOrderStatusPush(o.phone, "Homely Tiffins", msg);
       });
     };
@@ -8003,10 +8003,10 @@ export default function App() {
     await writeOrders(updated.filter(o => o.id === orderId));
 
     const STATUS_PUSH_COPY = {
-      preparing: "Your order is being prepared 🍳",
+      preparing: "Your order is being prepared 👩‍🍳",
       ready: "Your order is ready and will be dispatched shortly 📦",
       dispatched: "Your order is out for delivery 🛵",
-      delivered: "Delivered! Enjoy your meal 🍱",
+      delivered: "Delivered! Enjoy your meal ❤️",
     };
     if (STATUS_PUSH_COPY[nextStatus]) {
       sendOrderStatusPush(order.phone, "Homely Tiffins", STATUS_PUSH_COPY[nextStatus]);
