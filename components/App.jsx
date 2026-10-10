@@ -1542,7 +1542,7 @@ function TodaysDishes({ planConfig }) {
   const premium = sabjis.filter(s => s.premium).map(s => s.name.trim());
   const standard = sabjis.filter(s => !s.premium).map(s => s.name.trim());
   const sides = [
-    { key: "rice",  label: "Rice",  value: one(planConfig?.rice)[0] },
+    { key: "rice",  label: "Gold Rice", value: one(planConfig?.rice)[0] },
     { key: "raita", label: "Raita", value: one(planConfig?.raita)[0] },
     { key: "sweet", label: "Sweet", value: one(planConfig?.sweet)[0] },
     { key: "salad", label: "Salad", value: one(planConfig?.salad)[0] },
