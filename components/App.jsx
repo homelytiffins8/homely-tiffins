@@ -1574,7 +1574,7 @@ function TodaysDishes({ planConfig }) {
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Sharma Aunty is cooking.</div>
+          <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Anita Aunty is cooking.</div>
 
           {premium.length > 0 && (
             <div style={groupStyle("premium")}>
@@ -3344,7 +3344,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <img
             src="/logo.png"
-            alt="Sharma Aunty"
+            alt="Anita Aunty"
             style={{
               width: 92, height: 92, borderRadius: "50%",
               border: `2.5px solid ${HC.brown}`, objectFit: "cover", flexShrink: 0,
@@ -3411,7 +3411,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           }}>Made Fresh Every Day</h1>
 
           <div style={{ fontSize: isDesktop ? 16 : 13.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 14 }}>
-            Freshly cooked by Sharma Aunty.<br />Delivered hot within your society.
+            Freshly cooked by Anita Aunty.<br />Delivered hot within your society.
           </div>
 
           {/* Row 1 — rating pill only */}
@@ -3840,7 +3840,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {[
-            { icon: "🏠", desc: "Home cooked by Sharma Aunty" },
+            { icon: "🏠", desc: "Home cooked by Anita Aunty" },
             { icon: "🌿", desc: "Fresh and quality ingredients" },
             { icon: <VegDishIcon variant="katori" size={30} />, desc: "Fresh food with no preservatives" },
             { icon: "🛵", desc: "Delivered hot with care. Daily" },
@@ -3864,7 +3864,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         </div>
       </div>
 
-      {/* ═══════ SECTION 5 — MEET SHARMA AUNTY ═══════ */}
+      {/* ═══════ SECTION 5 — MEET ANITA AUNTY ═══════ */}
       <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
         <div style={{
           background: "#FBF3E3", borderRadius: 22,
@@ -3875,7 +3875,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           <div style={{ padding: "12px 6px 12px 12px" }}>
             <img
               src={AUNTY_SRC}
-              alt="Sharma Aunty in her kitchen"
+              alt="Anita Aunty in her kitchen"
               style={{
                 width: "100%", height: 130, objectFit: "cover", objectPosition: "center 25%",
                 display: "block", borderRadius: 14, border: `2px solid ${HC.brown}`,
@@ -3892,7 +3892,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               fontFamily: "'Playfair Display', Georgia, serif",
               fontWeight: 800, fontSize: 20, color: HC.brown, lineHeight: 1.15,
             }}>
-              Meet <span style={{ color: HC.orange }}>Sharma Aunty</span>
+              Meet <span style={{ color: HC.orange }}>Anita Aunty</span>
             </div>
             <div style={{
               fontFamily: "'Dancing Script', cursive",
@@ -3909,7 +3909,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               fontFamily: "'Nunito', sans-serif",
               fontSize: 12, color: HC.brown, lineHeight: 1.6,
             }}>
-              For as long as she can remember, Sharma Aunty has found joy in cooking for others.
+              For as long as she can remember, Anita Aunty has found joy in cooking for others.
               What began as preparing meals for family and friends has grown into Homely Tiffins—a
               kitchen built on love, fresh ingredients, and the belief that everyone deserves
               wholesome, homemade food.
