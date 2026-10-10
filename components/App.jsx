@@ -1454,24 +1454,78 @@ function PhotoPreviewModal({ src, label, onClose }) {
 // only changes when the owner taps "Publish Today's Plans" (the editor keeps
 // drafts in local state), so unpublished edits never reach customers.
 // ─────────────────────────────────────────────
-// Vegetarian bowl icon, drawn inline so it looks the same on every phone
+// Vegetarian dish icons, drawn inline so they look the same on every phone
 // (food emoji like 🥘 / 🍲 / 🍛 show meat or seafood on Android).
-function VegDishIcon({ curry = "#E0731A", paneer = false }) {
+// "handi" = premium (copper handi with paneer), "kadai" = iron kadai of aloo
+// sabji, "katori" = brass katori with tadka. Picked by position, not by dish.
+function VegDishIcon({ variant = "handi", size = 34 }) {
+  const steam = (
+    <path d="M18 5c-2 2.2-2 4.4 0 6.6M25 3.5c-2 2.4-2 4.8 0 7.2M32 5c-2 2.2-2 4.4 0 6.6" stroke="#D9B48A" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+  );
+  const leaf = (d, fill = "#2F8F3A") => <path d={d} fill={fill} />;
   return (
-    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M11 4c-1 1.4-1 2.8 0 4.2M16 3c-1 1.6-1 3.2 0 4.8M21 4c-1 1.4-1 2.8 0 4.2" stroke="#E6C7A2" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-      <path d="M3.5 14.5h25c0 7-5.6 12-12.5 12S3.5 21.5 3.5 14.5Z" fill="#B5652A" />
-      <path d="M10 26.4h12" stroke="#8C4A1C" strokeWidth="2" strokeLinecap="round" />
-      <ellipse cx="16" cy="14.5" rx="12.5" ry="3.6" fill={curry} />
-      {paneer && (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
+      {variant === "handi" && (
         <>
-          <rect x="8.5" y="12.8" width="3.8" height="3" rx=".6" fill="#FFF6E2" />
-          <rect x="14.4" y="11.9" width="3.8" height="3" rx=".6" fill="#FFF6E2" />
-          <rect x="20.2" y="13" width="3.6" height="2.8" rx=".6" fill="#FFF6E2" />
+          <path d="M17 4c-2 2.4-2 4.8 0 7.2M24 2.5c-2 2.6-2 5.2 0 7.8M31 4c-2 2.4-2 4.8 0 7.2" stroke="#D9B48A" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+          <path d="M6.5 22.5c-3 0-4 4.5-0.5 5.5M41.5 22.5c3 0 4 4.5 0.5 5.5" stroke="#8E3E12" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+          <path d="M7 21.5h34c0 11-7.6 19-17 19S7 32.5 7 21.5Z" fill="#B5541C" />
+          <path d="M11 26c1.5 6 6 10.5 11 11.8" stroke="#D9773A" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+          <rect x="16" y="39.2" width="16" height="3.4" rx="1.7" fill="#7A3410" />
+          <ellipse cx="24" cy="21.5" rx="17.5" ry="5" fill="#8E3E12" />
+          <ellipse cx="24" cy="21.3" rx="15.4" ry="3.9" fill="#E2581E" />
+          <path d="M13 21.6c3-2 6 1.6 9.5-0.2s6.5 1.8 10.5-0.4" stroke="#FFE7CF" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+          <rect x="14.2" y="18.2" width="5" height="4.2" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
+          <rect x="21.6" y="17.2" width="5" height="4.2" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
+          <rect x="29" y="18.6" width="4.8" height="4" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
+          {leaf("M19.5 23.4c1.2-1.6 2.8-1.6 3.6 0-1.2 0.9-2.4 0.9-3.6 0Z")}
+          {leaf("M27.4 23c1-1.4 2.6-1.5 3.4 0-1 0.9-2.3 0.9-3.4 0Z")}
+          {leaf("M33.5 21.6c0.9-1.2 2.2-1.2 2.9 0-0.9 0.7-2 0.7-2.9 0Z", "#3FA34B")}
         </>
       )}
-      <ellipse cx="12" cy="15.4" rx="2.1" ry=".9" fill="#3E8E2F" transform="rotate(-25 12 15.4)" />
-      <ellipse cx="19.8" cy="15.2" rx="2.1" ry=".9" fill="#3E8E2F" transform="rotate(20 19.8 15.2)" />
+      {variant === "kadai" && (
+        <>
+          {steam}
+          <circle cx="4.8" cy="24.5" r="3.2" fill="none" stroke="#2E2825" strokeWidth="2.4" />
+          <circle cx="43.2" cy="24.5" r="3.2" fill="none" stroke="#2E2825" strokeWidth="2.4" />
+          <path d="M6 23.5h36c0 10-8 16.5-18 16.5S6 33.5 6 23.5Z" fill="#3A3330" />
+          <path d="M10.5 28c2 5 6.5 8.4 11.5 9.2" stroke="#5A504B" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+          <ellipse cx="24" cy="23.5" rx="18.5" ry="5.2" fill="#2E2825" />
+          <ellipse cx="24" cy="22.8" rx="16.4" ry="4.6" fill="#E9A42A" />
+          <rect x="12.5" y="18.6" width="5.6" height="5" rx="1.6" fill="#F7CF55" stroke="#D08B1A" strokeWidth="0.6" />
+          <rect x="19.6" y="17.4" width="5.8" height="5.2" rx="1.6" fill="#F7CF55" stroke="#D08B1A" strokeWidth="0.6" />
+          <rect x="27" y="18.2" width="5.6" height="5" rx="1.6" fill="#F7CF55" stroke="#D08B1A" strokeWidth="0.6" />
+          <rect x="23.4" y="21.4" width="5" height="4.2" rx="1.4" fill="#F2C048" stroke="#D08B1A" strokeWidth="0.6" />
+          <path d="M31 24.6c3-0.6 5.2-2.2 6.6-4.4" stroke="#2E8B3A" strokeWidth="2" strokeLinecap="round" fill="none" />
+          <path d="M37.6 20.2l1.2-1.2" stroke="#3E6B2A" strokeWidth="1.4" strokeLinecap="round" />
+          {leaf("M14.5 24.6c1.1-1.5 2.6-1.5 3.3 0-1.1 0.8-2.2 0.8-3.3 0Z")}
+          {leaf("M20 25c1-1.3 2.4-1.3 3 0-1 0.8-2 0.8-3 0Z", "#3FA34B")}
+          <circle cx="26" cy="20.6" r="0.6" fill="#B23A1E" />
+          <circle cx="18.6" cy="22.6" r="0.6" fill="#5A3A1E" />
+          <circle cx="30.4" cy="21.4" r="0.6" fill="#5A3A1E" />
+        </>
+      )}
+      {variant === "katori" && (
+        <>
+          {steam}
+          <path d="M7 22.5h34c0 10.2-7.6 17-17 17S7 32.7 7 22.5Z" fill="#D4A02A" />
+          <path d="M11.5 27c1.8 5.4 6.2 9 11 9.8" stroke="#F0C75A" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+          <rect x="16.5" y="38.4" width="15" height="3.6" rx="1.8" fill="#A97810" />
+          <ellipse cx="24" cy="22.5" rx="17.4" ry="5" fill="#B07E14" />
+          <ellipse cx="24" cy="22.2" rx="15.4" ry="4" fill="#9C3A1C" />
+          <ellipse cx="17" cy="21.6" rx="2" ry="1.1" fill="#6E2414" />
+          <ellipse cx="22" cy="23.2" rx="2" ry="1.1" fill="#6E2414" />
+          <ellipse cx="28.6" cy="21.2" rx="2" ry="1.1" fill="#6E2414" />
+          <ellipse cx="32" cy="23" rx="1.8" ry="1" fill="#6E2414" />
+          <circle cx="20" cy="20.4" r="1.1" fill="#F5D27A" />
+          <circle cx="26" cy="23.6" r="0.9" fill="#F5D27A" />
+          <circle cx="31.4" cy="20.4" r="0.8" fill="#F5D27A" />
+          <path d="M12.5 19.4c2.6-2.8 6.2-3.2 8.6-2.2" stroke="#C62828" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+          <path d="M21 17.1l1.6-1" stroke="#2E7D32" strokeWidth="1.4" strokeLinecap="round" />
+          {leaf("M26.5 19c1.2-1.6 2.8-1.6 3.6 0-1.2 0.9-2.4 0.9-3.6 0Z")}
+          {leaf("M14.6 23.4c1-1.3 2.4-1.3 3 0-1 0.8-2 0.8-3 0Z", "#3FA34B")}
+        </>
+      )}
     </svg>
   );
 }
@@ -1494,7 +1548,7 @@ function TodaysDishes({ planConfig }) {
   const serif = "'Playfair Display', Georgia, serif";
   const divider = `1px solid ${HC.dash}`;
   const dishIcon = (icon) => (
-    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
+    <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
   );
   // Premium and standard rows share one look: bold orange label, plain dish name below.
   const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
@@ -1521,7 +1575,7 @@ function TodaysDishes({ planConfig }) {
             <div style={groupStyle("premium")}>
               {premium.map(name => (
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {dishIcon(<VegDishIcon curry="#D9541E" paneer />)}
+                  {dishIcon(<VegDishIcon variant="handi" />)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={dishLabel}>Premium · Gold plans</div>
                     <div style={dishName}>{name}</div>
@@ -1535,7 +1589,7 @@ function TodaysDishes({ planConfig }) {
             <div style={{ ...groupStyle("standard"), display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px 14px" }}>
               {standard.map((name, i) => (
                 <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                  {dishIcon(<VegDishIcon curry={i % 2 === 0 ? "#E0951A" : "#C9701F"} />)}
+                  {dishIcon(<VegDishIcon variant={i % 2 === 0 ? "kadai" : "katori"} />)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={{ ...dishLabel, fontSize: 12, letterSpacing: 0, textTransform: "none" }}>Standard sabji</div>
                     <div style={dishName}>{name}</div>
