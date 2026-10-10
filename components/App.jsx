@@ -1474,6 +1474,9 @@ function TodaysDishes({ planConfig }) {
   const dishIcon = (emoji) => (
     <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{emoji}</div>
   );
+  // Premium and standard rows share one look: bold orange label, plain dish name below.
+  const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
+  const dishName = { fontSize: 15, fontWeight: 400, color: HC.brown, lineHeight: 1.3, marginTop: 1 };
   const groupStyle = (key) => ({ padding: "14px 0", borderTop: groups.indexOf(key) > 0 ? divider : "none" });
 
   return (
@@ -1498,8 +1501,8 @@ function TodaysDishes({ planConfig }) {
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   {dishIcon("🍛")}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" }}>Premium · Gold plans</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: HC.brown, lineHeight: 1.3 }}>{name}</div>
+                    <div style={dishLabel}>Premium · Gold plans</div>
+                    <div style={dishName}>{name}</div>
                   </div>
                 </div>
               ))}
@@ -1512,8 +1515,8 @@ function TodaysDishes({ planConfig }) {
                 <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   {dishIcon(i % 2 === 0 ? "🥘" : "🍲")}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: HC.brown, lineHeight: 1.3 }}>{name}</div>
-                    <div style={{ fontSize: 12, color: HC.brownMid }}>Standard sabji</div>
+                    <div style={{ ...dishLabel, fontSize: 12, letterSpacing: 0, textTransform: "none" }}>Standard sabji</div>
+                    <div style={dishName}>{name}</div>
                   </div>
                 </div>
               ))}
@@ -1524,7 +1527,7 @@ function TodaysDishes({ planConfig }) {
             <div style={{ ...groupStyle("sides"), display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
               {sides.map(x => (
                 <div key={x.key} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                  <div style={{ fontSize: 11.5, color: HC.brownMid }}>{x.label}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: HC.brownMid }}>{x.label}</div>
                   <div style={{ fontSize: 13.5, color: HC.brown, lineHeight: 1.35, marginTop: 1 }}>{x.value}</div>
                 </div>
               ))}
