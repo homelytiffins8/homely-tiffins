@@ -1574,7 +1574,7 @@ function TodaysDishes({ planConfig }) {
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Sharma Aunty is cooking.</div>
+          <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Anita Aunty is cooking.</div>
 
           {premium.length > 0 && (
             <div style={groupStyle("premium")}>
@@ -1982,7 +1982,7 @@ function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet" style={{ paddingBottom: 24 }}>
         <div style={{ textAlign: "center", padding: "8px 0 18px" }}>
-          <div style={{ fontSize: 40, marginBottom: 10 }}>🥗</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}><VegDishIcon variant="katori" size={44} /></div>
           <h3 style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Complete Your Meal?</h3>
           <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.6 }}>
             Added to your order! Round it off with today's extras — <span style={{ fontWeight: 700 }}>totally optional.</span>
@@ -2895,7 +2895,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         )}
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontSize: 28, marginBottom: 4 }}>🍱</div>
+            <img src="/logo.png" alt="Homely Tiffins" style={{ width: 44, height: 44, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: "0 auto 6px" }} />
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>Homely Tiffins</h1>
             <p style={{ color: C.inkMid, fontSize: 13 }}>Order #{live.id.slice(-6).toUpperCase()}</p>
           </div>
@@ -3169,7 +3169,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           {/* ── TODAY'S EXTRAS: Raita / Salad / Sweet ── */}
           {plansAvailable && extraItems.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 2 }}>🥗 Today's Extras</h2>
+              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="katori" size={20} />Today's Extras</h2>
               <div style={{ fontSize: 11.5, color: C.inkMid, marginBottom: 10 }}>Optional add-ons, charged separately — not needed for the sides already included in your plan.</div>
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {extraItems.map(item => (
@@ -3192,7 +3192,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           {/* ── À LA CARTE ── */}
           {menuItems.length > 0 && (
             <div style={{ marginBottom: cartCount > 0 ? 16 : 80 }}>
-              {plansAvailable && <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🍛 À la carte</h2>}
+              {plansAvailable && <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="kadai" size={20} />À la carte</h2>}
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {menuItems.map(item => (
                   <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -3344,7 +3344,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <img
             src="/logo.png"
-            alt="Sharma Aunty"
+            alt="Anita Aunty"
             style={{
               width: 92, height: 92, borderRadius: "50%",
               border: `2.5px solid ${HC.brown}`, objectFit: "cover", flexShrink: 0,
@@ -3411,7 +3411,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           }}>Made Fresh Every Day</h1>
 
           <div style={{ fontSize: isDesktop ? 16 : 13.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 14 }}>
-            Freshly cooked by Sharma Aunty.<br />Delivered hot within your society.
+            Freshly cooked by Anita Aunty.<br />Delivered hot within your society.
           </div>
 
           {/* Row 1 — rating pill only */}
@@ -3555,8 +3555,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   {trackActiveOrder.status === "pending" &&
                     ((nowTick - new Date(trackActiveOrder.createdAt).getTime()) > 15 * 60 * 1000
                       ? "⚠️ Technical error — call 8006222000"
-                      : "Order received, aunty starting soon 🍳")}
-                  {trackActiveOrder.status === "preparing" && "Aunty is cooking your tiffin 🍲"}
+                      : "Order received, aunty starting soon ⏳")}
+                  {trackActiveOrder.status === "preparing" && "Aunty is cooking your tiffin 👩‍🍳"}
                   {trackActiveOrder.status === "ready" && "Your tiffin is packed and ready 📦"}
                   {trackActiveOrder.status === "dispatched" && "On its way to you 🛵"}
                 </div>
@@ -3840,9 +3840,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {[
-            { icon: "🏠", desc: "Home cooked by Sharma Aunty" },
+            { icon: "🏠", desc: "Home cooked by Anita Aunty" },
             { icon: "🌿", desc: "Fresh and quality ingredients" },
-            { icon: "🍲", desc: "Fresh food with no preservatives" },
+            { icon: <VegDishIcon variant="katori" size={30} />, desc: "Fresh food with no preservatives" },
             { icon: "🛵", desc: "Delivered hot with care. Daily" },
           ].map((r, i) => (
             <div key={i} style={{
@@ -3864,7 +3864,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         </div>
       </div>
 
-      {/* ═══════ SECTION 5 — MEET SHARMA AUNTY ═══════ */}
+      {/* ═══════ SECTION 5 — MEET ANITA AUNTY ═══════ */}
       <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
         <div style={{
           background: "#FBF3E3", borderRadius: 22,
@@ -3875,7 +3875,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           <div style={{ padding: "12px 6px 12px 12px" }}>
             <img
               src={AUNTY_SRC}
-              alt="Sharma Aunty in her kitchen"
+              alt="Anita Aunty in her kitchen"
               style={{
                 width: "100%", height: 130, objectFit: "cover", objectPosition: "center 25%",
                 display: "block", borderRadius: 14, border: `2px solid ${HC.brown}`,
@@ -3892,7 +3892,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               fontFamily: "'Playfair Display', Georgia, serif",
               fontWeight: 800, fontSize: 20, color: HC.brown, lineHeight: 1.15,
             }}>
-              Meet <span style={{ color: HC.orange }}>Sharma Aunty</span>
+              Meet <span style={{ color: HC.orange }}>Anita Aunty</span>
             </div>
             <div style={{
               fontFamily: "'Dancing Script', cursive",
@@ -3909,7 +3909,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               fontFamily: "'Nunito', sans-serif",
               fontSize: 12, color: HC.brown, lineHeight: 1.6,
             }}>
-              For as long as she can remember, Sharma Aunty has found joy in cooking for others.
+              For as long as she can remember, Anita Aunty has found joy in cooking for others.
               What began as preparing meals for family and friends has grown into Homely Tiffins—a
               kitchen built on love, fresh ingredients, and the belief that everyone deserves
               wholesome, homemade food.
@@ -4315,7 +4315,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
 
       {/* Sabjis */}
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🥘 Today's Sabjis (exactly 3)</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="kadai" size={18} />Today's Sabjis (exactly 3)</h3>
         <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>
           Gold: choice of any 2 of these 3 (incl. Premium) · Standard: sabjis 1 &amp; 2 fixed (never Premium) · Mini: choice of sabji 1 or 2 · Gold Mini: choice of any 1 of these 3 (incl. Premium)
         </p>
@@ -4339,7 +4339,7 @@ function PlanMenuEditor({ planConfig, onSave }) {
 
       {/* Rice / Salad / Raita / Sweet */}
       <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>🍚 Today's Extras</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="katori" size={18} />Today's Extras</h3>
         <div style={{ display: "grid", gap: 10 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>Flavoured Rice (Gold)</label>
@@ -7107,7 +7107,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
   const tabs = [
     { id: "orders",   label: "📦 Orders" },
     { id: "menu",     label: "🍽️ Menu" },
-    { id: "plans",    label: "🍛 Plans" },
+    { id: "plans",    label: "📋 Plans" },
     { id: "credit",   label: "📒 Credit" },
     { id: "analytics",label: "📊 Analytics" },
     { id: "customers",label: "👥 Customers" },
@@ -7120,7 +7120,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     <div style={{ minHeight: "100vh", background: C.cream }}>
       <div style={{ background: C.ink, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <h1 style={{ fontSize: 16, fontWeight: 800, color: C.white }}>🍱 Homely Tiffins</h1>
+          <h1 style={{ fontSize: 16, fontWeight: 800, color: C.white, display: "flex", alignItems: "center", gap: 8 }}><img src="/logo.png" alt="" style={{ width: 24, height: 24, borderRadius: "50%", border: "1.5px solid #fff", objectFit: "cover" }} />Homely Tiffins</h1>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>Owner Dashboard</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -7277,7 +7277,7 @@ function OwnerLogin({ onSuccess }) {
       `}</style>
 
       <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <div style={{ fontSize: 48, marginBottom: 10 }}>🍱</div>
+        <img src="/logo.png" alt="Homely Tiffins" style={{ width: 64, height: 64, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: "0 auto 10px" }} />
         <h1 style={{ fontSize: 26, fontWeight: 900, color: C.ink, marginBottom: 4 }}>Homely Tiffins</h1>
         <p style={{ fontSize: 13, color: C.inkMid }}>Owner Dashboard — Sign In</p>
       </div>
@@ -8312,7 +8312,7 @@ export default function App() {
 
   if (!loaded) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.cream }}>
-      <div style={{ textAlign: "center" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🍱</div><p style={{ color: C.inkMid }}>Loading...</p></div>
+      <div style={{ textAlign: "center" }}><img src="/logo.png" alt="Homely Tiffins" style={{ width: 56, height: 56, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: "0 auto 12px" }} /><p style={{ color: C.inkMid }}>Loading...</p></div>
     </div>
   );
 
@@ -8347,7 +8347,7 @@ export default function App() {
 
       {route === "owner" && !ownerAuthChecked && (
         <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.cream }}>
-          <div style={{ textAlign: "center" }}><div style={{ fontSize: 40, marginBottom: 12 }}>🍱</div><p style={{ color: C.inkMid }}>Loading...</p></div>
+          <div style={{ textAlign: "center" }}><img src="/logo.png" alt="Homely Tiffins" style={{ width: 56, height: 56, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: "0 auto 12px" }} /><p style={{ color: C.inkMid }}>Loading...</p></div>
         </div>
       )}
 
