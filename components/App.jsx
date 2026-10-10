@@ -1552,9 +1552,8 @@ function TodaysDishes({ planConfig }) {
 
   const serif = "'Playfair Display', Georgia, serif";
   const divider = `1px solid ${HC.dash}`;
-  // The premium dish sits on a golden badge; standard sabjis on a cream one.
-  const dishIcon = (icon, gold = false) => (
-    <div style={{ width: 44, height: 44, borderRadius: "50%", background: gold ? "#FBE7A6" : "#FFF9F0", border: gold ? "1.5px solid #E3A21F" : `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
+  const dishIcon = (icon) => (
+    <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
   );
   // Premium and standard rows share one look: bold orange label, plain dish name below.
   const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
@@ -1581,7 +1580,7 @@ function TodaysDishes({ planConfig }) {
             <div style={groupStyle("premium")}>
               {premium.map(name => (
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {dishIcon(<VegDishIcon variant="royal" />, true)}
+                  {dishIcon(<VegDishIcon variant="royal" />)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={dishLabel}>Premium · Gold plans</div>
                     <div style={dishName}>{name}</div>
