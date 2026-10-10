@@ -2532,54 +2532,30 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       window.removeEventListener("appinstalled", onAppInstalled);
     };
   }, []);
+  // ── "Order updates" + "Install app" tiles (under Track Your Order) ──
+  // Both tiles are always visible. When a tap can't act directly — Safari
+  // never fires beforeinstallprompt, Chrome's prompt is gated by engagement
+  // heuristics, notifications are blocked, or there's no order yet — we
+  // explain the next step in a small note under the tiles instead.
+  const [isIOSDevice] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const ua = window.navigator.userAgent;
+    return /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && "ontouchend" in document);
+  });
+  const [tileHint, setTileHint] = useState(null);
   const handleInstallClick = async () => {
-    if (!installPromptEvent) return;
+    setTileHint(null);
+    if (isStandalone) return;
+    if (!installPromptEvent) {
+      setTileHint(isIOSDevice
+        ? <>To install: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b></>
+        : <>To install: tap your browser's <b>⋮ menu</b> then <b>"Add to Home screen"</b> / <b>"Install app"</b></>);
+      return;
+    }
     installPromptEvent.prompt();
     await installPromptEvent.userChoice;
     // The captured event can only be used once — clear it either way.
     setInstallPromptEvent(null);
-  };
-
-  // ── iOS instructional banner ──
-  // Safari never fires beforeinstallprompt, so there's nothing to hook a
-  // button into — the only option is telling the user how to do it manually.
-  // Dismissal is remembered (localStorage) so it doesn't nag on every visit.
-  const [isIOSSafari] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const ua = window.navigator.userAgent;
-    const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && "ontouchend" in document);
-    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
-    return isIOS && isSafari;
-  });
-  const [iosBannerDismissed, setIosBannerDismissed] = useState(
-    typeof window !== "undefined" && localStorage.getItem("ht_ios_install_dismissed") === "1"
-  );
-  const dismissIosBanner = () => {
-    localStorage.setItem("ht_ios_install_dismissed", "1");
-    setIosBannerDismissed(true);
-  };
-
-  // ── Android/desktop Chrome manual-install fallback ──
-  // beforeinstallprompt is gated by Chrome's own engagement heuristics (time
-  // on site, interaction count, prior dismissals) and can simply never fire
-  // in a given session even on a fully-installable site — that's expected
-  // Chrome behavior, not a bug we can code around. After a grace period with
-  // no prompt event, show manual instructions instead of a dead-end. Only
-  // for non-iOS (iOS already gets its own banner above) and non-standalone.
-  const [showManualInstallHint, setShowManualInstallHint] = useState(false);
-  const [manualHintDismissed, setManualHintDismissed] = useState(
-    typeof window !== "undefined" && localStorage.getItem("ht_manual_install_dismissed") === "1"
-  );
-  useEffect(() => {
-    if (isIOSSafari || isStandalone) return;
-    const t = setTimeout(() => {
-      if (!installPromptEvent) setShowManualInstallHint(true);
-    }, 10000); // give the real prompt 10s to show up first
-    return () => clearTimeout(t);
-  }, [isIOSSafari, isStandalone, installPromptEvent]);
-  const dismissManualInstallHint = () => {
-    localStorage.setItem("ht_manual_install_dismissed", "1");
-    setManualHintDismissed(true);
   };
 
   // ── Notification opt-in ──
@@ -2599,10 +2575,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // tell what actually went wrong from a phone with no dev console open.
   const [notifError, setNotifError] = useState(null);
   const [notifBusy, setNotifBusy] = useState(false);
-  const handleEnableNotifications = async () => {
+  const handleEnableNotifications = async (phone = knownPhone) => {
     setNotifBusy(true);
     setNotifError(null);
-    const result = await subscribeToPush(knownPhone);
+    const result = await subscribeToPush(phone);
     setNotifBusy(false);
     if (result.ok) {
       setNotifStatus("granted");
@@ -2610,6 +2586,27 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       setNotifStatus(typeof Notification !== "undefined" ? Notification.permission : "denied");
       setNotifError(result.reason || "Unknown error");
     }
+  };
+  const handleNotifTileClick = () => {
+    setTileHint(null);
+    if (notifBusy || notifStatus === "granted") return;
+    // Re-read storage: an order placed this session may not be in knownPhone yet.
+    const phone = knownPhone || localStorage.getItem("htLastCustomerPhone");
+    if (!phone) {
+      setTileHint("Place your first order, then tap here to get live updates for it.");
+      return;
+    }
+    if (notifStatus === "unsupported") {
+      setTileHint(isIOSDevice && !isStandalone
+        ? <>On iPhone, install the app first (<b>Install app</b> → <b>"Add to Home Screen"</b>), open it from your home screen, then tap here.</>
+        : "This browser can't show notifications. Try opening the site in Chrome.");
+      return;
+    }
+    if (notifStatus === "denied") {
+      setTileHint(<>Notifications are blocked for Homely. Allow them in your browser or phone <b>settings</b>, then reopen the site.</>);
+      return;
+    }
+    handleEnableNotifications(phone);
   };
   // ── Self-heal a "granted but never actually subscribed" state ──
   // Notification.permission is a permanent browser-level flag: once granted,
@@ -3335,8 +3332,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         .h5-notif-btn { animation: h5-ripple 2s ease-out infinite; }
         .h5-notif-bell { display: inline-block; transform-origin: 50% 10%; animation: h5-ring 2.6s ease-in-out infinite; }
         .h5-live-dot { animation: h5-blink 1.4s infinite; }
+        @keyframes h5-bob { 0%,70%,100% { transform: translateY(0); } 80% { transform: translateY(3px); } 90% { transform: translateY(0); } }
+        .h5-dl-icon { display: inline-block; animation: h5-bob 2.6s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .h5-notif-btn, .h5-notif-bell, .h5-live-dot { animation: none; }
+          .h5-notif-btn, .h5-notif-bell, .h5-live-dot, .h5-dl-icon { animation: none; }
         }
       `}</style>
 
@@ -3372,111 +3371,6 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{ marginTop: 2 }}><HeartIcon s={11} c={HC.orange} /></div>
           </div>
         </div>
-
-        {!isStandalone && installPromptEvent && (
-          <button
-            onClick={handleInstallClick}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              marginTop: 12, padding: "9px 16px",
-              background: HC.orange, color: "#fff", border: "none",
-              borderRadius: 999, fontFamily: "'Nunito', sans-serif",
-              fontWeight: 800, fontSize: 13.5, cursor: "pointer",
-              boxShadow: "0 2px 8px rgba(224,115,26,0.35)",
-            }}
-          >
-            ⬇ Install App
-          </button>
-        )}
-
-        {!isStandalone && !isIOSSafari && !installPromptEvent && showManualInstallHint && !manualHintDismissed && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 10,
-            marginTop: 12, padding: "10px 12px",
-            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
-            borderRadius: 12, maxWidth: 340,
-          }}>
-            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
-              Install this app: tap Chrome's <b>⋮ menu</b> then <b>"Add to Home screen" / "Install app"</b>
-            </div>
-            <button
-              onClick={dismissManualInstallHint}
-              aria-label="Dismiss"
-              style={{
-                background: "none", border: "none", color: HC.brownMid,
-                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
-              }}
-            >×</button>
-          </div>
-        )}
-
-        {!isStandalone && isIOSSafari && !iosBannerDismissed && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 10,
-            marginTop: 12, padding: "10px 12px",
-            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`,
-            borderRadius: 12, maxWidth: 340,
-          }}>
-            <div style={{ fontSize: 13, color: HC.brown, lineHeight: 1.4, flex: 1 }}>
-              Install this app: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b>
-            </div>
-            <button
-              onClick={dismissIosBanner}
-              aria-label="Dismiss"
-              style={{
-                background: "none", border: "none", color: HC.brownMid,
-                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
-              }}
-            >×</button>
-          </div>
-        )}
-
-        {knownPhone && notifStatus === "default" && (
-          <div style={{ marginTop: 8 }}>
-            <button
-              className={notifBusy ? undefined : "h5-notif-btn"}
-              onClick={handleEnableNotifications}
-              disabled={notifBusy}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 16px",
-                background: HC.orange, color: "#fff", border: `1.5px solid ${HC.orange}`,
-                borderRadius: 999, fontFamily: "'Nunito', sans-serif",
-                fontWeight: 800, fontSize: 13, cursor: notifBusy ? "default" : "pointer",
-                opacity: notifBusy ? 0.6 : 1,
-              }}
-            >
-              {notifBusy ? "Enabling…" : (
-                <><span className="h5-notif-bell">🔔</span>Get order updates</>
-              )}
-            </button>
-            <div style={{
-              display: "flex", alignItems: "flex-start", gap: 6,
-              marginTop: 6, maxWidth: 340,
-              fontSize: 12, color: HC.brownMid, lineHeight: 1.4,
-            }}>
-              <span className="h5-live-dot" style={{
-                width: 7, height: 7, borderRadius: "50%", background: "#2E7D32",
-                flexShrink: 0, marginTop: 5,
-              }} />
-              <span>Get live status for your order: Accepted → Preparing → Ready → Dispatched → Delivered</span>
-            </div>
-          </div>
-        )}
-        {knownPhone && notifStatus === "granted" && (
-          <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D32", fontWeight: 700 }}>
-            ✓ Order updates enabled
-          </div>
-        )}
-        {notifError && (
-          <div style={{
-            marginTop: 8, padding: "8px 12px", maxWidth: 320,
-            background: "#FDECEA", border: "1px solid #D32F2F", borderRadius: 10,
-            fontSize: 12, color: "#B71C1C", lineHeight: 1.4,
-          }}>
-            Couldn't enable notifications: {notifError}
-          </div>
-        )}
       </div>
 
       {/* ═══════ SECTION 2 — HERO ═══════ */}
@@ -3708,6 +3602,97 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{ color: HC.orange, fontSize: 20, fontWeight: 800, flexShrink: 0 }}>›</div>
           )}
         </div>
+
+        {/* Order updates + Install app tiles — always shown */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+          <button
+            className={notifStatus !== "granted" && !notifBusy ? "h5-notif-btn" : undefined}
+            onClick={handleNotifTileClick}
+            style={{
+              minWidth: 0, textAlign: "left", padding: 10, borderRadius: 14,
+              fontFamily: "'Nunito', sans-serif",
+              background: notifStatus === "granted" ? "#E8F5E9" : HC.orange,
+              border: `1.5px solid ${notifStatus === "granted" ? "#2E7D32" : HC.orange}`,
+              color: notifStatus === "granted" ? "#1B5E20" : "#fff",
+              cursor: notifStatus === "granted" || notifBusy ? "default" : "pointer",
+              opacity: notifBusy ? 0.7 : 1,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: 13, lineHeight: 1.2 }}>
+              {notifStatus === "granted" ? "✓ Updates on" : notifBusy ? "Enabling…" : (
+                <><span className="h5-notif-bell" style={{ fontSize: 15 }}>🔔</span>Order updates</>
+              )}
+            </div>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: 11,
+              color: notifStatus === "granted" ? "#2E7D32" : "#FFE9D4",
+            }}>
+              <span className={notifStatus === "granted" ? undefined : "h5-live-dot"} style={{
+                width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                background: notifStatus === "granted" ? "#2E7D32" : "#B6F2B9",
+              }} />
+              Live status alerts
+            </div>
+          </button>
+
+          <button
+            onClick={handleInstallClick}
+            style={{
+              minWidth: 0, textAlign: "left", padding: 10, borderRadius: 14,
+              fontFamily: "'Nunito', sans-serif",
+              background: "#fff", border: `1.5px solid ${isStandalone ? "#2E7D32" : HC.orange}`,
+              color: HC.brown, cursor: isStandalone ? "default" : "pointer",
+            }}
+          >
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: 13, lineHeight: 1.2,
+              color: isStandalone ? "#2E7D32" : HC.orange,
+            }}>
+              {isStandalone ? "✓ App installed" : (
+                <>
+                  <svg className="h5-dl-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 4v11" /><path d="M7 10l5 5 5-5" /><path d="M5 20h14" />
+                  </svg>
+                  Install app
+                </>
+              )}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: HC.brownMid }}>
+              {isStandalone ? "You're using the app" : "Order in one tap"}
+            </div>
+          </button>
+        </div>
+        <div style={{ marginTop: 7, fontSize: 11, color: HC.brownMid, lineHeight: 1.4 }}>
+          Accepted → Preparing → Ready → Dispatched → Delivered
+        </div>
+
+        {tileHint && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginTop: 8, padding: "10px 12px",
+            background: "#FFF3E8", border: `1.5px solid ${HC.orange}`, borderRadius: 12,
+          }}>
+            <div style={{ fontSize: 12.5, color: HC.brown, lineHeight: 1.4, flex: 1 }}>{tileHint}</div>
+            <button
+              onClick={() => setTileHint(null)}
+              aria-label="Dismiss"
+              style={{
+                background: "none", border: "none", color: HC.brownMid,
+                fontSize: 16, fontWeight: 800, cursor: "pointer", padding: 4,
+              }}
+            >×</button>
+          </div>
+        )}
+        {notifError && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px",
+            background: "#FDECEA", border: "1px solid #D32F2F", borderRadius: 10,
+            fontSize: 12, color: "#B71C1C", lineHeight: 1.4,
+          }}>
+            Couldn't enable notifications: {notifError}
+          </div>
+        )}
       </div>
 
       {/* ═══════ SECTION 3B — HOMELY GOLD LAUNCH BANNER ═══════ */}
