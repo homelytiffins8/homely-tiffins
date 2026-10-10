@@ -1456,31 +1456,36 @@ function PhotoPreviewModal({ src, label, onClose }) {
 // ─────────────────────────────────────────────
 // Vegetarian dish icons, drawn inline so they look the same on every phone
 // (food emoji like 🥘 / 🍲 / 🍛 show meat or seafood on Android).
-// "handi" = premium (copper handi with paneer), "kadai" = iron kadai of aloo
-// sabji, "katori" = brass katori with tadka. Picked by position, not by dish.
-function VegDishIcon({ variant = "handi", size = 34 }) {
+// "royal" = premium (golden bowl of paneer makhani with a crown), "kadai" =
+// iron kadai of aloo sabji, "katori" = brass katori with tadka. Picked by
+// position, not by dish.
+function VegDishIcon({ variant = "royal", size = 34 }) {
   const steam = (
     <path d="M18 5c-2 2.2-2 4.4 0 6.6M25 3.5c-2 2.4-2 4.8 0 7.2M32 5c-2 2.2-2 4.4 0 6.6" stroke="#D9B48A" strokeWidth="1.8" strokeLinecap="round" fill="none" />
   );
   const leaf = (d, fill = "#2F8F3A") => <path d={d} fill={fill} />;
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      {variant === "handi" && (
+      {variant === "royal" && (
         <>
-          <path d="M17 4c-2 2.4-2 4.8 0 7.2M24 2.5c-2 2.6-2 5.2 0 7.8M31 4c-2 2.4-2 4.8 0 7.2" stroke="#D9B48A" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-          <path d="M6.5 22.5c-3 0-4 4.5-0.5 5.5M41.5 22.5c3 0 4 4.5 0.5 5.5" stroke="#8E3E12" strokeWidth="2.4" strokeLinecap="round" fill="none" />
-          <path d="M7 21.5h34c0 11-7.6 19-17 19S7 32.5 7 21.5Z" fill="#B5541C" />
-          <path d="M11 26c1.5 6 6 10.5 11 11.8" stroke="#D9773A" strokeWidth="2.4" strokeLinecap="round" fill="none" />
-          <rect x="16" y="39.2" width="16" height="3.4" rx="1.7" fill="#7A3410" />
-          <ellipse cx="24" cy="21.5" rx="17.5" ry="5" fill="#8E3E12" />
-          <ellipse cx="24" cy="21.3" rx="15.4" ry="3.9" fill="#E2581E" />
-          <path d="M13 21.6c3-2 6 1.6 9.5-0.2s6.5 1.8 10.5-0.4" stroke="#FFE7CF" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-          <rect x="14.2" y="18.2" width="5" height="4.2" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
-          <rect x="21.6" y="17.2" width="5" height="4.2" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
-          <rect x="29" y="18.6" width="4.8" height="4" rx="0.9" fill="#FFF6E2" stroke="#E8C9A0" strokeWidth="0.6" />
-          {leaf("M19.5 23.4c1.2-1.6 2.8-1.6 3.6 0-1.2 0.9-2.4 0.9-3.6 0Z")}
-          {leaf("M27.4 23c1-1.4 2.6-1.5 3.4 0-1 0.9-2.3 0.9-3.4 0Z")}
-          {leaf("M33.5 21.6c0.9-1.2 2.2-1.2 2.9 0-0.9 0.7-2 0.7-2.9 0Z", "#3FA34B")}
+          <path d="M16 3.5l3.2 3.4L24 2l4.8 4.9L32 3.5l-1.2 7H17.2Z" fill="#F2B705" stroke="#C98F00" strokeWidth="0.8" strokeLinejoin="round" />
+          <circle cx="24" cy="5.6" r="1.1" fill="#E8501A" />
+          <path d="M5 20.5h38c0 11.8-8.5 20-19 20S5 32.3 5 20.5Z" fill="#E3A21F" />
+          <path d="M9.5 25.5c1.7 6.6 6.8 11.3 12.6 12.4" stroke="#F8D65E" strokeWidth="2.8" strokeLinecap="round" fill="none" />
+          <path d="M35 27c-1.3 4.6-4.2 7.9-8 9.5" stroke="#B87A0E" strokeWidth="2" strokeLinecap="round" fill="none" />
+          <path d="M6.2 25.4h35.6" stroke="#C98F00" strokeWidth="1.6" />
+          <rect x="16" y="38.8" width="16" height="4" rx="2" fill="#B87A0E" />
+          <ellipse cx="24" cy="20.5" rx="19" ry="5.4" fill="#B87A0E" />
+          <ellipse cx="24" cy="20.3" rx="17" ry="4.4" fill="#D9461A" />
+          <path d="M11.5 20.6c3.6-2 7 1.6 11-0.2s7.6 1.8 12-0.4" stroke="#FFF1E2" strokeWidth="1.7" strokeLinecap="round" fill="none" />
+          <rect x="13" y="15.6" width="6.6" height="6" rx="1.2" fill="#FFF8EA" stroke="#EBC79B" strokeWidth="0.8" />
+          <path d="M14.2 17.2l4.2 2.6M14.2 19.6l3 1.8" stroke="#C8792E" strokeWidth="0.9" strokeLinecap="round" />
+          <rect x="21" y="14.4" width="6.8" height="6.2" rx="1.2" fill="#FFF8EA" stroke="#EBC79B" strokeWidth="0.8" />
+          <path d="M22.2 16l4.4 2.8M22.2 18.6l3 1.8" stroke="#C8792E" strokeWidth="0.9" strokeLinecap="round" />
+          <rect x="29.4" y="16" width="6.4" height="5.8" rx="1.2" fill="#FFF8EA" stroke="#EBC79B" strokeWidth="0.8" />
+          <path d="M30.6 17.6l4 2.6" stroke="#C8792E" strokeWidth="0.9" strokeLinecap="round" />
+          {leaf("M19.6 23c1.5-2 3.5-2 4.6 0-1.5 1.2-3.1 1.2-4.6 0Z", "#2F9E44")}
+          {leaf("M28.6 22.8c1.3-1.7 3-1.8 3.9 0-1.3 1-2.6 1-3.9 0Z", "#2F9E44")}
         </>
       )}
       {variant === "kadai" && (
@@ -1547,8 +1552,9 @@ function TodaysDishes({ planConfig }) {
 
   const serif = "'Playfair Display', Georgia, serif";
   const divider = `1px solid ${HC.dash}`;
-  const dishIcon = (icon) => (
-    <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
+  // The premium dish sits on a golden badge; standard sabjis on a cream one.
+  const dishIcon = (icon, gold = false) => (
+    <div style={{ width: 44, height: 44, borderRadius: "50%", background: gold ? "#FBE7A6" : "#FFF9F0", border: gold ? "1.5px solid #E3A21F" : `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
   );
   // Premium and standard rows share one look: bold orange label, plain dish name below.
   const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
@@ -1575,7 +1581,7 @@ function TodaysDishes({ planConfig }) {
             <div style={groupStyle("premium")}>
               {premium.map(name => (
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {dishIcon(<VegDishIcon variant="handi" />)}
+                  {dishIcon(<VegDishIcon variant="royal" />, true)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={dishLabel}>Premium · Gold plans</div>
                     <div style={dishName}>{name}</div>
