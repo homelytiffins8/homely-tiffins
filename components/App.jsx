@@ -1454,6 +1454,28 @@ function PhotoPreviewModal({ src, label, onClose }) {
 // only changes when the owner taps "Publish Today's Plans" (the editor keeps
 // drafts in local state), so unpublished edits never reach customers.
 // ─────────────────────────────────────────────
+// Vegetarian bowl icon, drawn inline so it looks the same on every phone
+// (food emoji like 🥘 / 🍲 / 🍛 show meat or seafood on Android).
+function VegDishIcon({ curry = "#E0731A", paneer = false }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M11 4c-1 1.4-1 2.8 0 4.2M16 3c-1 1.6-1 3.2 0 4.8M21 4c-1 1.4-1 2.8 0 4.2" stroke="#E6C7A2" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      <path d="M3.5 14.5h25c0 7-5.6 12-12.5 12S3.5 21.5 3.5 14.5Z" fill="#B5652A" />
+      <path d="M10 26.4h12" stroke="#8C4A1C" strokeWidth="2" strokeLinecap="round" />
+      <ellipse cx="16" cy="14.5" rx="12.5" ry="3.6" fill={curry} />
+      {paneer && (
+        <>
+          <rect x="8.5" y="12.8" width="3.8" height="3" rx=".6" fill="#FFF6E2" />
+          <rect x="14.4" y="11.9" width="3.8" height="3" rx=".6" fill="#FFF6E2" />
+          <rect x="20.2" y="13" width="3.6" height="2.8" rx=".6" fill="#FFF6E2" />
+        </>
+      )}
+      <ellipse cx="12" cy="15.4" rx="2.1" ry=".9" fill="#3E8E2F" transform="rotate(-25 12 15.4)" />
+      <ellipse cx="19.8" cy="15.2" rx="2.1" ry=".9" fill="#3E8E2F" transform="rotate(20 19.8 15.2)" />
+    </svg>
+  );
+}
+
 function TodaysDishes({ planConfig }) {
   const isToday = !!planConfig && planConfig.date === todayStr();
   const sabjis = isToday ? (planConfig.sabjis || []).filter(s => s && s.name && s.name.trim()) : [];
@@ -1471,8 +1493,8 @@ function TodaysDishes({ planConfig }) {
 
   const serif = "'Playfair Display', Georgia, serif";
   const divider = `1px solid ${HC.dash}`;
-  const dishIcon = (emoji) => (
-    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{emoji}</div>
+  const dishIcon = (icon) => (
+    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FFF9F0", border: `1px solid ${HC.dash}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</div>
   );
   // Premium and standard rows share one look: bold orange label, plain dish name below.
   const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
@@ -1499,7 +1521,7 @@ function TodaysDishes({ planConfig }) {
             <div style={groupStyle("premium")}>
               {premium.map(name => (
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {dishIcon("🍛")}
+                  {dishIcon(<VegDishIcon curry="#D9541E" paneer />)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={dishLabel}>Premium · Gold plans</div>
                     <div style={dishName}>{name}</div>
@@ -1513,7 +1535,7 @@ function TodaysDishes({ planConfig }) {
             <div style={{ ...groupStyle("standard"), display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px 14px" }}>
               {standard.map((name, i) => (
                 <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                  {dishIcon(i % 2 === 0 ? "🥘" : "🍲")}
+                  {dishIcon(<VegDishIcon curry={i % 2 === 0 ? "#E0951A" : "#C9701F"} />)}
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                     <div style={{ ...dishLabel, fontSize: 12, letterSpacing: 0, textTransform: "none" }}>Standard sabji</div>
                     <div style={dishName}>{name}</div>
