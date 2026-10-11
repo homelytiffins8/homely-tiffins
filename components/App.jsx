@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard, PreferenceAutoPrompt } from "./CustomerHub";
+import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard, PreferenceAutoPrompt, AcquisitionSourcePrompt } from "./CustomerHub";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -2664,6 +2664,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // prefTick makes the reminder card re-check once the form is closed.
   const [prefPromptOrderId, setPrefPromptOrderId] = useState(null);
   const [prefTick, setPrefTick] = useState(0);
+  // "How did you hear about Homely?" sheet (first order only): "checking" | "open" | "closed".
+  // The feedback poll waits until it is closed so the two never stack.
+  const [acqState, setAcqState] = useState("closed");
 
   // Read remembered phone on mount (no-op if browser storage isn't available)
   useEffect(() => {
@@ -2998,8 +3001,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </button>
         </div>
 
+        {/* "How did you hear about Homely?" — the database only opens it after a customer's first successful order */}
+        {!isRejected && (
+          <AcquisitionSourcePrompt key={live.id} supabase={supabase} C={C} orderId={live.id} onStateChange={setAcqState} />
+        )}
+
         {/* Feedback poll — appears once after placing an order, if live */}
-        {pollOrder && isPollLive(poll) && (
+        {pollOrder && isPollLive(poll) && acqState === "closed" && (
           <PollModal
             poll={poll}
             order={pollOrder}

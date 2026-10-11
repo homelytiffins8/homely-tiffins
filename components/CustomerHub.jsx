@@ -428,6 +428,7 @@ function CustomerProfile({ supabase, id, onBack, onOpen, onDeleted }) {
             <div style={{ fontSize: 13, color: C.inkMid, marginTop: 3 }}>{s.phone}</div>
             <div style={{ fontSize: 13, color: C.inkMid }}>{s.tower || "Tower not recorded"}{s.flat ? `, flat ${s.flat}` : ""}</div>
             <SocietyEditor s={s} onSave={(v) => act("staff_set_society", { p_customer: s.id, p_society: v }, "Society saved")} />
+            <AcquisitionLine a={p.acquisition} />
           </div>
           <div style={{ textAlign: "right" }}>
             <Pill tone={bucketTone(s.bucket)}>{BUCKET_LABEL[s.bucket]}</Pill>
@@ -483,6 +484,15 @@ function SocietyEditor({ s, onSave }) {
       <button className="ht-btn btn-ghost btn-sm" onClick={() => setEdit(false)}>Cancel</button>
     </div>
   );
+}
+
+// Answer to "How did you hear about Homely?" (asked once, after the first order)
+function AcquisitionLine({ a }) {
+  const C = useC();
+  const text = !a || !a.prompt_shown ? "not recorded"
+    : !a.source ? "skipped the question"
+    : `${acqLabel(a.source)}${a.source === "other" && a.other ? ` — "${a.other}"` : ""} · ${fmtD(a.submitted_at)}`;
+  return <div style={{ fontSize: 13, color: C.inkMid }} data-testid="acq-line">Heard about us: <strong style={{ color: a?.source ? C.ink : C.inkLight, fontWeight: a?.source ? 700 : 500 }}>{text}</strong></div>;
 }
 
 function Overview({ p }) {
@@ -1600,6 +1610,133 @@ export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 3000, overflowY: "auto", background: C.cream }} data-testid="pref-auto">
       <PreferenceFormPage supabase={supabase} C={C} token={token} onDone={onClose} />
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// CUSTOMER-FACING: "HOW DID YOU HEAR ABOUT HOMELY?"
+// Bottom sheet over the order page, only after a customer's first successful order.
+// The database decides (acq_prompt_status_for_order): first non-rejected order across all
+// of the customer's merged phones, and never asked before. Submit or Skip marks it asked on
+// the customer profile, so it never comes back. Never blocks ordering: any failure just stays closed.
+// ═════════════════════════════════════════════════════════════
+export const ACQ_SOURCES = [
+  ["tower_card_flyer", "Tower Card / Flyer"],
+  ["neighbour_friend", "Neighbour / Friend"],
+  ["whatsapp", "WhatsApp Group / Status"],
+  ["existing_customer_referral", "Referred by an Existing Customer"],
+  ["google_search", "Google Search"],
+  ["homely_website", "Homely Website"],
+  ["society_event_sampling", "Society Event / Sampling"],
+  ["other", "Other"],
+];
+const acqLabel = (v) => ACQ_SOURCES.find(s => s[0] === v)?.[1] || v;
+
+// onStateChange("checking" | "open" | "closed") lets the order page hold back other pop-ups meanwhile.
+export function AcquisitionSourcePrompt({ supabase, C = DEFAULT_C, orderId, onStateChange }) {
+  const [open, setOpen] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [other, setOther] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(null);
+  const [thanks, setThanks] = useState(false);
+  const report = (s) => { if (onStateChange) onStateChange(s); };
+
+  useEffect(() => {
+    if (!orderId) { report("closed"); return; }
+    let live = true;
+    report("checking");
+    (async () => {
+      // The order reaches the database a moment after it is placed, so retry briefly.
+      for (let i = 0; i < 6 && live; i++) {
+        try {
+          const s = await callRpc(supabase, "acq_prompt_status_for_order", { p_order_id: orderId });
+          if (s && s.ok) {
+            if (!live) return;
+            if (s.show) { setOpen(true); report("open"); } else report("closed");
+            return;
+          }
+        } catch { /* try again */ }
+        await new Promise(res => setTimeout(res, 1500));
+      }
+      if (live) report("closed");
+    })();
+    // leaving the order page (or the order getting rejected) must release the poll too
+    return () => { live = false; report("closed"); };
+  }, [supabase, orderId]);
+
+  if (!open) return null;
+  const close = () => { setOpen(false); report("closed"); };
+  const otherText = other.trim();
+  const canSubmit = !!choice && (choice !== "other" || otherText.length > 0) && !saving;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSaving(true); setErr(null);
+    try {
+      const r = await callRpc(supabase, "acq_prompt_submit", { p_order_id: orderId, p_source: choice, p_other: choice === "other" ? otherText : null });
+      if (r && r.ok === false) throw new Error(r.error === "other_required" ? "Please mention where you heard about us." : "Couldn't save that. Please try again.");
+      setThanks(true);
+      setTimeout(close, 1400);
+    } catch (e) { setErr(e); }
+    setSaving(false);
+  };
+  const skip = async () => {
+    close();
+    try { await callRpc(supabase, "acq_prompt_skip", { p_order_id: orderId }); } catch { /* skipping must never fail */ }
+  };
+
+  return (
+    <div className="modal-backdrop" data-testid="acq-prompt">
+      <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="acq-title" style={{ padding: "18px 18px 22px" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 14px" }} />
+        {thanks ? (
+          <div style={{ textAlign: "center", padding: "10px 0 6px" }}>
+            <div style={{ fontSize: 34, marginBottom: 6 }} aria-hidden="true">🙏</div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, color: C.ink, margin: 0 }}>Thank you!</h2>
+            <p style={{ fontSize: 12.5, color: C.inkMid, marginTop: 4 }}>Thanks for letting us know.</p>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.greenLight || "#ECF7F2", color: C.green, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, marginBottom: 8 }}>
+              ✓ Order placed · one quick question
+            </div>
+            <h2 id="acq-title" style={{ fontSize: 18, fontWeight: 800, color: C.ink, margin: 0, lineHeight: 1.3 }}>How did you hear about Homely?</h2>
+            <p style={{ fontSize: 12, color: C.inkLight, margin: "3px 0 12px" }}>It helps us understand how people discover us.</p>
+            <div role="radiogroup" aria-labelledby="acq-title" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+              {ACQ_SOURCES.map(([v, l]) => {
+                const on = choice === v;
+                return (
+                  <button key={v} type="button" role="radio" aria-checked={on} onClick={() => { setChoice(v); setErr(null); }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", minHeight: 46, padding: "8px 10px", borderRadius: 10, cursor: "pointer",
+                      border: `1.5px solid ${on ? C.saffron : C.border}`, background: on ? C.saffronLight : C.white, transition: "all 0.15s",
+                      fontSize: 12.5, fontWeight: on ? 700 : 600, color: on ? C.ink : C.inkMid, lineHeight: 1.25 }}>
+                    <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, border: `2px solid ${on ? C.saffron : C.inkLight}`,
+                      display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {on && <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.saffron }} />}
+                    </span>
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
+            {choice === "other" && (
+              <input className="ht-input" autoFocus value={other} maxLength={120} onChange={e => setOther(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") submit(); }}
+                placeholder="Please mention where you heard about us" aria-label="Please mention where you heard about us"
+                style={{ marginTop: 10 }} />
+            )}
+            {err && <div style={{ fontSize: 12, color: C.red, marginTop: 8 }} role="alert">{errMsg(err)}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button type="button" className="ht-btn btn-secondary" style={{ flex: "0 0 calc((100% - 8px) * 0.65 / 3)", minWidth: 0, padding: "10px 6px" }} onClick={skip} data-testid="acq-skip">Skip</button>
+              <button type="button" className="ht-btn btn-primary" style={{ flex: 1, opacity: canSubmit ? 1 : 0.5 }} disabled={!canSubmit} onClick={submit} data-testid="acq-submit">
+                {saving ? "Saving…" : "Submit"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
