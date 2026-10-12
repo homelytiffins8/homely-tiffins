@@ -2391,6 +2391,27 @@ const HeartIcon = ({ s = 14, c = HC.orange, fill = "none" }) => (
     <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
   </svg>
 );
+// Hero tiffin: beige blob + thin ring + tilted tiffin, plus the handwritten
+// note when full. Positions are % of a 700x484 box.
+const HeroTiffinArt = ({ full }) => (
+  <div style={{ position: "relative", width: "100%", aspectRatio: "700 / 484", containerType: "inline-size" }}>
+    <svg viewBox="0 0 700 484" aria-hidden style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}>
+      <path d="M48 270 C40 140 200 45 380 42 C520 40 615 130 612 250 C608 370 500 448 350 446 C190 444 56 390 48 270 Z" fill="#F2DFC1" />
+      <ellipse cx="331" cy="246" rx="294" ry="222" transform="rotate(-4 331 246)" fill="none" stroke="#DDD3C5" strokeWidth={full ? 1.3 : 2.4} />
+      {full && <path d="M547 124 L521 96 M521 96 l1.5 11 M521 96 l11 1.5" fill="none" stroke={HC.orangeDeep} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+    <img src={REF_SRC} alt={full ? "Homely Tiffins tiffin" : ""} aria-hidden={!full} style={{
+      position: "absolute", left: full ? "31%" : "27%", top: full ? "13%" : "4%", width: full ? "33%" : "42%", height: "auto",
+      transform: "rotate(6deg)", display: "block",
+    }} />
+    {full && (
+      <div style={{
+        position: "absolute", left: "74%", top: "0.5%", transform: "rotate(-7deg)", transformOrigin: "left top",
+        fontFamily: "'Kalam', cursive", fontSize: "clamp(17px, 3.6cqw, 25px)", lineHeight: 1.05, color: HC.orangeDeep, whiteSpace: "nowrap",
+      }}>A little taste<br />of home.</div>
+    )}
+  </div>
+);
 const LeafIcon = ({ s = 26, c = "#fff" }) => (
   <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 20A7 7 0 0 1 4 13c0-5 4-9 15-9 0 8-3 16-8 16Z" /><path d="M8 17c2-4 5-6 9-7" />
@@ -3330,7 +3351,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   return (
     <div style={{ background: HC.cream, minHeight: "100vh", fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown, overflowX: "hidden" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Dancing+Script:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Dancing+Script:wght@600;700&family=Kalam:wght@400&family=Nunito:wght@400;600;700;800&display=swap');
         * { box-sizing: border-box; }
         .h5-testimonials::-webkit-scrollbar { display: none; }
         .h5-testimonials { scrollbar-width: none; }
@@ -3342,8 +3363,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         .h5-live-dot { animation: h5-blink 1.4s infinite; }
         @keyframes h5-bob { 0%,70%,100% { transform: translateY(0); } 80% { transform: translateY(3px); } 90% { transform: translateY(0); } }
         .h5-dl-icon { display: inline-block; animation: h5-bob 2.6s ease-in-out infinite; }
+        @keyframes h5-heartbeat { 0%,40%,100% { transform: scale(1); } 10% { transform: scale(1.08); } 20% { transform: scale(1); } 30% { transform: scale(1.06); } }
+        @keyframes h5-ring { 0% { box-shadow: 0 0 0 0 rgba(224,115,26,.55); } 45%,100% { box-shadow: 0 0 0 12px rgba(224,115,26,0); } }
+        .h5-order-beat { animation: h5-heartbeat 1.5s ease-in-out infinite, h5-ring 1.5s ease-out infinite; transform-origin: center; }
+        .h5-order-beat:hover, .h5-order-beat:active { animation-play-state: paused; }
         @media (prefers-reduced-motion: reduce) {
-          .h5-notif-btn, .h5-notif-bell, .h5-live-dot, .h5-dl-icon { animation: none; }
+          .h5-notif-btn, .h5-notif-bell, .h5-live-dot, .h5-dl-icon, .h5-order-beat { animation: none; }
         }
       `}</style>
 
@@ -3394,15 +3419,20 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       }}>
         {/* Background tiffin illustration — mobile only */}
         {!isDesktop && (
-          <img
-            src={REF_SRC}
-            alt=""
-            aria-hidden
-            style={{
-              position: "absolute", bottom: 40, right: 10, width: 135, height: "auto",
-              zIndex: 0, pointerEvents: "none",
-            }}
-          />
+          <div style={{ position: "absolute", bottom: 44, right: -44, width: 270, zIndex: 0, pointerEvents: "none" }}>
+            <HeroTiffinArt />
+          </div>
+        )}
+        {!isDesktop && (
+          <div aria-hidden style={{ position: "absolute", top: 12, right: 10, zIndex: 1, pointerEvents: "none" }}>
+            <div style={{
+              transform: "rotate(-7deg)", transformOrigin: "right top",
+              fontFamily: "'Kalam', cursive", fontSize: 15, lineHeight: 1.05, color: HC.orangeDeep, whiteSpace: "nowrap",
+            }}>A little taste<br />of home.</div>
+            <svg width="16" height="30" viewBox="0 0 16 30" style={{ position: "absolute", top: 40, right: 22, overflow: "visible" }}>
+              <path d="M13 2 L3 27 M3 27 l6.3 -5 M3 27 l-1.2 -7.9" fill="none" stroke={HC.orangeDeep} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
         )}
 
         {/* LEFT — text content */}
@@ -3452,20 +3482,19 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={() => { if (unratedOrder) { setShowRatingModal(true); } else { setStep("order"); } }} disabled={!kitchenOpen || !menuAvailable} style={{
-              background: isDesktop ? HC.orange : "transparent",
-              color: isDesktop ? "#fff" : HC.orange,
+            <button className={(kitchenOpen && menuAvailable) ? "h5-order-beat" : undefined} onClick={() => { if (unratedOrder) { setShowRatingModal(true); } else { setStep("order"); } }} disabled={!kitchenOpen || !menuAvailable} style={{
+              background: HC.orange,
+              color: "#fff",
               border: `1.5px solid ${HC.orange}`,
               padding: isDesktop ? "14px 32px" : "10px 22px",
-              borderRadius: 10,
+              borderRadius: 12,
               fontFamily: "'Nunito', sans-serif", fontWeight: 800,
               fontSize: isDesktop ? 17 : 15,
               display: "inline-flex", alignItems: "center", gap: 8,
               cursor: (kitchenOpen && menuAvailable) ? "pointer" : "not-allowed",
               opacity: (kitchenOpen && menuAvailable) ? 1 : 0.5,
-              boxShadow: isDesktop ? "0 6px 16px rgba(224,115,26,.32)" : "none",
             }}>
-              <CartIcon s={16} c={isDesktop ? "#fff" : HC.orange} /> Order Now
+              <CartIcon s={16} c="#fff" /> Order Now
             </button>
             <button onClick={() => setShowContact(true)} style={{
               background: "transparent",
@@ -3485,12 +3514,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
         {/* RIGHT — tiffin image (desktop only) */}
         {isDesktop && (
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "20px 0" }}>
-            <img
-              src={REF_SRC}
-              alt="Homely Tiffins tiffin"
-              style={{ width: "64%", maxWidth: 268, height: "auto", display: "block" }}
-            />
+          <div style={{ padding: "20px 0", width: "118%", marginLeft: "-12%" }}>
+            <HeroTiffinArt full />
           </div>
         )}
       </div>
