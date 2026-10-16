@@ -820,6 +820,79 @@ function todayStr() {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS).toISOString().split("T")[0];
 }
+
+// ─────────────────────────────────────────────
+// SITE ANALYTICS — anonymous visit / click-through events
+// ─────────────────────────────────────────────
+// Writes to the site_events table (stage13_site_events.sql). Only random
+// IDs are stored — never phone, name or address. visitor_id lives in
+// localStorage (same browser = same visitor); session_id rolls over after
+// 30 min of inactivity. Devices that have logged into the owner dashboard
+// are skipped so the owner's own testing doesn't inflate the numbers.
+// Every storage access is wrapped: private mode must never break ordering.
+const SESSION_IDLE_MS = 30 * 60 * 1000;
+function readStoredSession() {
+  try { return JSON.parse(localStorage.getItem("ht_session") || "null"); } catch { return null; }
+}
+function getTrackingContext() {
+  let visitorId = null, isReturning = false;
+  try {
+    visitorId = localStorage.getItem("ht_visitor_id");
+    isReturning = !!visitorId;
+    if (!visitorId) { visitorId = genId() + genId(); localStorage.setItem("ht_visitor_id", visitorId); }
+  } catch { visitorId = visitorId || genId() + genId(); }
+
+  let session = readStoredSession();
+  const now = Date.now();
+  if (!session || now - session.lastSeen > SESSION_IDLE_MS) {
+    const params = new URLSearchParams(window.location.search);
+    let referrer = "";
+    try {
+      const host = document.referrer ? new URL(document.referrer).hostname : "";
+      if (host && host !== window.location.hostname) referrer = host.replace(/^www\./, "");
+    } catch { /* unparseable referrer — treat as direct */ }
+    session = {
+      id: genId() + genId(),
+      sent: [],
+      isReturning,
+      referrer: referrer.slice(0, 120),
+      utmSource: (params.get("utm_source") || "").slice(0, 60).toLowerCase(),
+      utmCampaign: (params.get("utm_campaign") || "").slice(0, 60).toLowerCase(),
+    };
+  }
+  session.lastSeen = now;
+  return { visitorId, session };
+}
+function trackEvent(name, props = null, onceKey = name) {
+  if (typeof window === "undefined") return;
+  try { if (localStorage.getItem("ht_owner_device") === "1") return; } catch { /* storage blocked */ }
+  const { visitorId, session } = getTrackingContext();
+  // Funnel steps count once per session; repeated taps don't add rows.
+  if (onceKey && session.sent.includes(onceKey)) {
+    try { localStorage.setItem("ht_session", JSON.stringify(session)); } catch { /* ignore */ }
+    return;
+  }
+  if (onceKey) session.sent.push(onceKey);
+  try { localStorage.setItem("ht_session", JSON.stringify(session)); } catch { /* ignore */ }
+
+  const isMobile = window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth < 768;
+  const installed = !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
+  supabase.from("site_events").insert({
+    event_name: name,
+    visitor_id: visitorId,
+    session_id: session.id,
+    is_returning: session.isReturning,
+    referrer: session.referrer || null,
+    utm_source: session.utmSource || null,
+    utm_campaign: session.utmCampaign || null,
+    device: isMobile ? "mobile" : "desktop",
+    installed,
+    props,
+  }).then(({ error }) => {
+    if (error) console.warn("[analytics] event not saved:", name, error.message);
+  });
+}
+
 function weekKey(dateStr) {
   const d = new Date(dateStr); const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
@@ -2626,6 +2699,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const handleInstallClick = async () => {
     setTileHint(null);
     if (isStandalone) return;
+    trackEvent("install_click");
     if (!installPromptEvent) {
       setTileHint(isIOSDevice
         ? <>To install: tap <b>Share</b> <span style={{ fontSize: 15 }}>⬆️</span> then <b>"Add to Home Screen"</b></>
@@ -2726,6 +2800,19 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     return () => clearInterval(id);
   }, []);
   const [lookupPhone, setLookupPhone] = useState("");
+
+  // ── Site analytics: visit → menu → plan → cart → checkout → order ──
+  // Driven off state changes rather than individual buttons, so every path
+  // into a step (Order Now, rating skip, "order again" etc.) is counted.
+  useEffect(() => { trackEvent("visit"); }, []);
+  useEffect(() => { if (step === "order") trackEvent("menu_view"); }, [step]);
+  useEffect(() => {
+    if (planChoiceModal) trackEvent("plan_open", { plan: planChoiceModal }, `plan_open:${planChoiceModal}`);
+  }, [planChoiceModal]);
+  const cartHasItems = Object.keys(cart).length > 0;
+  useEffect(() => { if (cartHasItems) trackEvent("add_to_cart"); }, [cartHasItems]);
+  useEffect(() => { if (showModal) trackEvent("checkout_open"); }, [showModal]);
+  useEffect(() => { if (showContact) trackEvent("contact_open"); }, [showContact]);
 
   // ── Rating state ──
   // rememberedPhone: read from localStorage on mount; identifies returning customer
@@ -2899,6 +2986,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       if (res.reason === "kitchen_closed") setStep("home");
       return;
     }
+    // Only counted once the order was actually saved. Not once-per-session:
+    // a customer placing two orders counts twice.
+    trackEvent("order_placed", { order_id: order.id, total: order.total }, null);
     setActiveOrder(order);
     setStep("track");
     setCart({});
@@ -2932,6 +3022,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     const rows = await loadOrdersByPhoneFromTable(trimmed);
     const found = (rows || []).find(o => o.date === todayStr());
     if (found) {
+      trackEvent("track_order");
       setMyOrders(rows);
       setRememberedPhone(trimmed); // start polling this phone going forward
       setActiveOrder(found);
@@ -5703,8 +5794,176 @@ function SalesDashboardCard({ allOrders }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// VISITORS (site analytics funnel)
+// ─────────────────────────────────────────────
+// Reads the site_analytics() summary built from site_events. Counts are
+// per session (one visit to the site), so a customer who taps "Add" five
+// times still counts once at that step.
+const FUNNEL_STEPS = [
+  ["visit",         "Opened the site"],
+  ["menu_view",     "Viewed the menu"],
+  ["add_to_cart",   "Added to cart"],
+  ["checkout_open", "Opened checkout"],
+  ["order_placed",  "Placed an order"],
+];
+const PLAN_LABELS = { gold: "Homely Gold", standard: "Standard", mini: "Mini" };
+
+function istDaysAgo(days) {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  return new Date(Date.now() + IST_OFFSET_MS - days * 86400000).toISOString().split("T")[0];
+}
+function pctOf(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+
+function VisitorsCard() {
+  const [period, setPeriod] = useState("week"); // "today" | "week" | "month"
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const from = period === "today" ? todayStr() : istDaysAgo(period === "week" ? 6 : 29);
+    setLoading(true);
+    setError("");
+    supabase.rpc("site_analytics", { p_from: from, p_to: todayStr() }).then(({ data, error }) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (error) setError(error.message);
+      else setData(data);
+    });
+    return () => { cancelled = true; };
+  }, [period]);
+
+  const funnel = data?.funnel || {};
+  const totals = data?.totals || {};
+  const stepCount = (key) => funnel[key]?.sessions || 0;
+  const visits = stepCount("visit");
+  const orders = stepCount("order_placed");
+  const daily = data?.daily || [];
+  const maxDaily = Math.max(...daily.map(d => d.visitors), 1);
+
+  const tile = (label, value, sub) => (
+    <div className="ht-card" style={{ padding: 14 }}>
+      <div style={{ fontSize: 11, color: C.inkLight, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[["today", "Today"], ["week", "Last 7 days"], ["month", "Last 30 days"]].map(([key, lbl]) => (
+          <button
+            key={key}
+            onClick={() => setPeriod(key)}
+            className="ht-btn btn-sm"
+            style={{
+              flex: 1,
+              background: period === key ? C.saffron : C.white,
+              color: period === key ? C.white : C.inkMid,
+              border: `1.5px solid ${period === key ? C.saffron : C.border}`,
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="ht-card" style={{ padding: 16, marginBottom: 16, background: C.redLight }}>
+          <p style={{ fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 4 }}>Couldn't load visitor data</p>
+          <p style={{ fontSize: 12, color: C.inkMid }}>{error}</p>
+          <p style={{ fontSize: 11, color: C.inkLight, marginTop: 6 }}>If this is new, check that stage13_site_events.sql has been run in Supabase.</p>
+        </div>
+      )}
+
+      {loading && !data && <p style={{ fontSize: 13, color: C.inkMid, textAlign: "center", padding: 20 }}>Loading…</p>}
+
+      {data && <div style={{ opacity: loading ? 0.5 : 1 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          {tile("👣 Visitors", totals.visitors || 0, `${totals.sessions || 0} visits`)}
+          {tile("🔁 Returning", totals.returning_visitors || 0, `${pctOf(totals.returning_visitors, totals.visitors)}% of visitors`)}
+          {tile("🛒 Orders from visits", orders, `${pctOf(orders, visits)}% of visits ordered`)}
+          {tile("📱 On phone", `${pctOf(totals.mobile_sessions, totals.sessions)}%`, `${totals.installed_sessions || 0} visits from installed app`)}
+        </div>
+
+        <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Click-through funnel</h3>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 14 }}>How many visits reached each step.</p>
+          {FUNNEL_STEPS.map(([key, label], i) => {
+            const n = stepCount(key);
+            const prev = i === 0 ? n : stepCount(FUNNEL_STEPS[i - 1][0]);
+            const lost = Math.max(prev - n, 0);
+            return (
+              <div key={key} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: C.ink, fontWeight: 600 }}>{label}</span>
+                  <span style={{ color: C.inkMid }}><b style={{ color: C.ink }}>{n}</b> · {pctOf(n, visits)}%</span>
+                </div>
+                <div style={{ height: 10, background: C.saffronLight, borderRadius: 5, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(pctOf(n, visits), 100)}%`, height: "100%", background: key === "order_placed" ? C.green : C.saffron, borderRadius: 5 }} />
+                </div>
+                {i > 0 && lost > 0 && (
+                  <div style={{ fontSize: 11, color: C.inkLight, marginTop: 3 }}>↓ {lost} dropped off here ({pctOf(lost, prev)}%)</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Where visitors came from</h3>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>From link tags (?utm_source=…) or the referring website.</p>
+          {(data.sources || []).length === 0 && <p style={{ fontSize: 13, color: C.inkMid }}>No visits yet.</p>}
+          {(data.sources || []).map(s => (
+            <div key={s.source} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+              <span style={{ color: C.ink, fontWeight: 600, textTransform: "capitalize" }}>{s.source}</span>
+              <span style={{ color: C.inkMid }}>{s.sessions} visits · {s.orders} orders ({pctOf(s.orders, s.sessions)}%)</span>
+            </div>
+          ))}
+        </div>
+
+        {period !== "today" && daily.length > 0 && (
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 14 }}>Visitors per day</h3>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 80 }}>
+              {daily.map(d => (
+                <div key={d.day} title={`${fmtDate(d.day)}: ${d.visitors} visitors, ${d.orders} orders`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  {period === "week" && <div style={{ fontSize: 10, color: C.inkLight }}>{d.visitors}</div>}
+                  <div style={{ width: "100%", height: `${Math.max((d.visitors / maxDaily) * 60, d.visitors > 0 ? 4 : 0)}px`, background: d.day === todayStr() ? C.saffron : C.border, borderRadius: "3px 3px 0 0" }} />
+                  {period === "week" && <div style={{ fontSize: 10, color: C.inkMid }}>{new Date(d.day).toLocaleDateString("en-IN", { weekday: "short" })}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(data.plans || []).length > 0 && (
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 12 }}>Plans customers looked at</h3>
+            {data.plans.map(p => (
+              <div key={p.plan} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
+                <span style={{ color: C.ink, fontWeight: 600 }}>{PLAN_LABELS[p.plan] || p.plan}</span>
+                <span style={{ color: C.inkMid }}>{p.sessions} visits opened it</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p style={{ fontSize: 11, color: C.inkLight, textAlign: "center", marginBottom: 8 }}>
+          Your own devices are excluded once you've logged in here.
+          {funnel.contact_open?.sessions ? ` · ${funnel.contact_open.sessions} opened Contact Us` : ""}
+          {funnel.track_order?.sessions ? ` · ${funnel.track_order.sessions} tracked an order` : ""}
+        </p>
+      </div>}
+    </div>
+  );
+}
+
 function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData, onOpenCustomer }) {
-  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales" | "customers"
+  const [analyticsTab, setAnalyticsTab] = useState("overview"); // "overview" | "sales" | "customers" | "visitors"
   const EXPORT_PIN = "2018";
 
   // Combine archived history with today's live orders, de-duplicated by order id.
@@ -5788,14 +6047,16 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData,
   return (
     <div style={{ padding: "20px 0" }}>
       {/* Sub-tab switcher: Overview vs Sales Dashboard */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[["overview", "📊 Overview"], ["sales", "📈 Sales"], ["customers", "👥 Customers"]].map(([key, lbl]) => (
+      {/* 2×2 on phones, one row when there's room */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+        {[["overview", "📊 Overview"], ["sales", "📈 Sales"], ["customers", "👥 Customers"], ["visitors", "👣 Visitors"]].map(([key, lbl]) => (
           <button
             key={key}
             onClick={() => setAnalyticsTab(key)}
             className="ht-btn"
             style={{
-              flex: 1,
+              flex: "1 1 40%",
+              minWidth: 0,
               background: analyticsTab === key ? C.ink : C.white,
               color: analyticsTab === key ? C.white : C.inkMid,
               border: `1.5px solid ${analyticsTab === key ? C.ink : C.border}`,
@@ -5808,6 +6069,7 @@ function AnalyticsPanel({ todayOrders, ordersHistory, customers, onResetAllData,
 
       {analyticsTab === "sales" && <SalesDashboardCard allOrders={allOrders} />}
       {analyticsTab === "customers" && <CustomerInsightsReport supabase={supabase} C={C} onOpenCustomer={onOpenCustomer} />}
+      {analyticsTab === "visitors" && <VisitorsCard />}
 
       {analyticsTab === "overview" && <>
       <div className="ht-card" style={{ padding: 20, marginBottom: 20 }}>
@@ -7530,6 +7792,12 @@ export default function App() {
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
+
+  // Mark this browser as the owner's so site analytics ignores it from now on
+  // (trackEvent checks this flag). Kept after logout on purpose.
+  useEffect(() => {
+    if (ownerAuthed) { try { localStorage.setItem("ht_owner_device", "1"); } catch { /* storage blocked */ } }
+  }, [ownerAuthed]);
 
   // Register the PWA service worker. This was missing entirely, which is the
   // most likely reason the "Add to Home Screen" prompt showed up inconsistently:
