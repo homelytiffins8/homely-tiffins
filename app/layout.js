@@ -1,3 +1,5 @@
+import { Analytics } from "@vercel/analytics/next";
+
 export const metadata = {
   title: "Homely Tiffins",
   description: "Fresh, home-style meals — delivered within the society",
@@ -24,7 +26,12 @@ export default function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Homely Tiffins" />
       </head>
-      <body style={{ margin: 0 }}>{children}</body>
+      <body style={{ margin: 0 }}>
+        {children}
+        {/* Vercel Web Analytics: visitor counts, country, device, referrer.
+            Must also be switched on in the Vercel project → Analytics tab. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
