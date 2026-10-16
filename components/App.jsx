@@ -2464,65 +2464,6 @@ const HeartIcon = ({ s = 14, c = HC.orange, fill = "none" }) => (
     <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
   </svg>
 );
-// Illustrated icons for the "Homely's Promise" chalkboard (48x48 art).
-const PromiseIcon = ({ kind, size = 44 }) => (
-  <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-    {kind === "home" && (
-      <>
-        <path d="M33 9.5v-3h4v6.5" fill="#B5543A" />
-        <path d="M9 22L24 9l15 13v18a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2Z" fill="#FBEBD3" />
-        <path d="M5 23.5L24 7l19 16.5" stroke="#E0731A" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="20" y="30" width="8" height="12" rx="1.5" fill="#B5543A" />
-        <circle cx="26" cy="36.5" r=".9" fill="#F2B705" />
-        <path d="M16 21.6c-1.9-2.6-6-1.1-4.6 2 .9 1.9 4.6 4.2 4.6 4.2s3.7-2.3 4.6-4.2c1.4-3.1-2.7-4.6-4.6-2Z" fill="#E8403A" />
-        <rect x="29.5" y="27" width="6.5" height="6" rx="1" fill="#9FD3E6" stroke="#3B2A1A" strokeWidth=".8" />
-        <path d="M4 42h40" stroke="#7DBA4B" strokeWidth="2.4" strokeLinecap="round" />
-      </>
-    )}
-    {kind === "basket" && (
-      <>
-        <path d="M14 20c-4-6 0-12 6-12 0 5-2 9-6 12Z" fill="#3E9E46" />
-        <path d="M22 19c0-7 6-11 12-9-2 5-6 8-12 9Z" fill="#5BBF4F" />
-        <path d="M32 19l7.5-7" stroke="#F08A2B" strokeWidth="3.6" strokeLinecap="round" />
-        <circle cx="23" cy="20" r="5.2" fill="#E8403A" />
-        <path d="M21 15.8l2 1.6 2-1.6" stroke="#2F8F3A" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-        <path d="M6 21h36l-3.5 17.5A3 3 0 0 1 35.6 41H12.4a3 3 0 0 1-2.9-2.5Z" fill="#C98A3E" />
-        <path d="M8.5 27h31M9.6 33h28.8" stroke="#A86F2C" strokeWidth="1.4" />
-        <path d="M16 21l1.4 20M24 21v20M32 21l-1.4 20" stroke="#A86F2C" strokeWidth="1.2" />
-        <rect x="4.5" y="19" width="39" height="4" rx="2" fill="#8E5A22" />
-      </>
-    )}
-    {kind === "noPreservative" && (
-      <>
-        <rect x="15" y="6" width="14" height="5" rx="1.5" fill="#8E9AA6" />
-        <path d="M14 12h16v4l3 4v18a4 4 0 0 1-4 4H15a4 4 0 0 1-4-4V20l3-4Z" fill="#DCEFF5" stroke="#7FA8B8" strokeWidth="1.2" />
-        <rect x="13" y="24" width="18" height="9" rx="1.5" fill="#fff" stroke="#7FA8B8" strokeWidth="1" />
-        <circle cx="31" cy="27" r="13" fill="none" stroke="#E8403A" strokeWidth="3.6" />
-        <path d="M22 36l18-18" stroke="#E8403A" strokeWidth="3.6" strokeLinecap="round" />
-        <circle cx="38.5" cy="39.5" r="6.5" fill="#2F8F3A" stroke="#fff" strokeWidth="1.6" />
-        <path d="M35.6 39.6l2 2 3.8-4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      </>
-    )}
-    {kind === "scooter" && (
-      <>
-        <path d="M5 13c-1.4-1.6 0-3.2 1-4.4M9 13c-1.4-1.6 0-3.2 1-4.4M13 13c-1.4-1.6 0-3.2 1-4.4" stroke="#E6A15C" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-        <rect x="4" y="15" width="11" height="4" rx="1.4" fill="#C98F00" />
-        <rect x="4" y="19.6" width="11" height="4" rx="1.4" fill="#F2B705" />
-        <rect x="4" y="24.2" width="11" height="4" rx="1.4" fill="#C98F00" />
-        <path d="M4 29h14l3 6H8a4 4 0 0 1-4-4Z" fill="#E0731A" />
-        <path d="M18 29l6-11h5" stroke="#3B2A1A" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M27 15.5h5" stroke="#3B2A1A" strokeWidth="2.6" strokeLinecap="round" />
-        <path d="M21 35h12l5-6h-9Z" fill="#E0731A" />
-        <path d="M29 29l4-9" stroke="#3B2A1A" strokeWidth="2.2" strokeLinecap="round" />
-        <circle cx="11" cy="37" r="5.2" fill="#3B2A1A" />
-        <circle cx="11" cy="37" r="2" fill="#E6C7A2" />
-        <circle cx="37" cy="37" r="5.2" fill="#3B2A1A" />
-        <circle cx="37" cy="37" r="2" fill="#E6C7A2" />
-        <path d="M40 22h5M41.5 26h4M40 30h5" stroke="#E0731A" strokeWidth="1.6" strokeLinecap="round" />
-      </>
-    )}
-  </svg>
-);
 // Hero tiffin: beige blob + thin ring + tilted tiffin, plus the handwritten
 // note when full. Positions are % of a 700x484 box.
 const HeroTiffinArt = ({ full }) => (
@@ -3501,7 +3442,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   return (
     <div style={{ background: HC.cream, minHeight: "100vh", fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown, overflowX: "hidden" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Dancing+Script:wght@600;700&family=Kalam:wght@400&family=Caveat:wght@700&family=Nunito:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Dancing+Script:wght@600;700&family=Kalam:wght@400&family=Nunito:wght@400;600;700;800&display=swap');
         * { box-sizing: border-box; }
         .h5-testimonials::-webkit-scrollbar { display: none; }
         .h5-testimonials { scrollbar-width: none; }
@@ -4021,39 +3962,29 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
         </div>
 
-        {/* Kitchen chalkboard in a wooden frame */}
-        <div style={{
-          background: "#2E3B33", border: "10px solid #A0703E", borderRadius: 10,
-          padding: "18px 14px 12px",
-          boxShadow: "inset 0 0 30px rgba(0, 0, 0, 0.35), 0 6px 16px rgba(59, 42, 26, 0.18)",
-        }}>
-          <div style={{ fontFamily: "'Caveat', cursive", fontWeight: 700, fontSize: 26, color: "#F6EFE1", textAlign: "center", lineHeight: 1 }}>
-            Homely's Promise
-          </div>
-          <div style={{ height: 2, background: "rgba(246, 239, 225, 0.35)", margin: "8px 40px 14px", borderRadius: 2 }} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 10px" }}>
-            {[
-              { icon: "home", title: "Cooked at home", sub: "by Anita Aunty", color: "#FFE98A" },
-              { icon: "basket", title: "Fresh sabzi", sub: "every single day", color: "#C9EBB8" },
-              { icon: "noPreservative", title: "No preservatives", sub: "clean, honest food", color: "#FFD3C4" },
-              { icon: "scooter", title: "Hot at your door", sub: "delivered daily", color: "#CFE6F7" },
-            ].map((r) => (
-              <div key={r.icon} style={{ textAlign: "center" }}>
-                <div style={{
-                  width: 58, height: 58, borderRadius: "50%", margin: "0 auto",
-                  background: "rgba(255, 255, 255, 0.92)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <PromiseIcon kind={r.icon} size={44} />
-                </div>
-                <div style={{ fontFamily: "'Caveat', cursive", fontWeight: 700, fontSize: 21, color: r.color, marginTop: 6, lineHeight: 1 }}>{r.title}</div>
-                <div style={{ fontFamily: "'Caveat', cursive", fontWeight: 700, fontSize: 17, color: "#D8D2C2", lineHeight: 1.1 }}>{r.sub}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontFamily: "'Caveat', cursive", fontWeight: 700, fontSize: 20, color: "#F6EFE1", textAlign: "right", marginTop: 12 }}>
-            with love, Anita Aunty <span style={{ color: "#F09595" }}>♥</span>
-          </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          {[
+            { icon: "🏠", desc: "Home cooked by Anita Aunty" },
+            { icon: "🌿", desc: "Fresh and quality ingredients" },
+            { icon: <VegDishIcon variant="katori" size={30} />, desc: "Fresh food with no preservatives" },
+            { icon: "🛵", desc: "Delivered hot with care. Daily" },
+          ].map((r, i) => (
+            <div key={i} style={{
+              background: "#fff", borderRadius: 14, padding: "12px 8px 10px",
+              border: `1px solid ${HC.dash}`, boxShadow: "0 3px 10px rgba(59, 42, 26, 0.04)",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center",
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: HC.cream,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 24, lineHeight: 1,
+              }}>{r.icon}</div>
+              <div style={{
+                fontFamily: "'Nunito', sans-serif",
+                fontSize: 9.5, fontWeight: 700, color: HC.brown, lineHeight: 1.25,
+              }}>{r.desc}</div>
+            </div>
+          ))}
         </div>
       </div>
 
