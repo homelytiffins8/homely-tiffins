@@ -824,17 +824,43 @@ function todayStr() {
 // ─────────────────────────────────────────────
 // SITE ANALYTICS — anonymous visit / click-through events
 // ─────────────────────────────────────────────
-// Writes to the site_events table (stage13_site_events.sql). Only random
+// Writes to the site_events table (stage13 + stage14 SQL). Only random
 // IDs are stored — never phone, name or address. visitor_id lives in
 // localStorage (same browser = same visitor); session_id rolls over after
 // 30 min of inactivity. Devices that have logged into the owner dashboard
 // are skipped so the owner's own testing doesn't inflate the numbers.
 // Every storage access is wrapped: private mode must never break ordering.
+//
+// Timestamps come from the server (created_at), never the phone's clock,
+// so the dashboard's Lunch/Dinner split can't be skewed by a wrong clock.
 const SESSION_IDLE_MS = 30 * 60 * 1000;
+const TRACKING_VERSION = 2;
+
+// Whether customers can order right now (kitchen switched on AND today's
+// menu/plans published — the rule that enables Order Now). CustomerApp
+// keeps this current; null until the customer page has rendered once.
+let trackingKitchenOpen = null;
+function setTrackingKitchenOpen(open) { trackingKitchenOpen = open; }
+
+// Stable meal-variant IDs (same as variant_map) from a cart / order line id.
+function variantOfCartId(id) {
+  if (typeof id !== "string") return null;
+  if (id.startsWith("goldmini:")) return "goldMini";
+  if (id.startsWith("gold:")) return "gold";
+  if (id.startsWith("plan-standard")) return "standard";
+  if (id.startsWith("mini:")) return "mini";
+  return null;
+}
+
 function readStoredSession() {
   try { return JSON.parse(localStorage.getItem("ht_session") || "null"); } catch { return null; }
 }
-function getTrackingContext() {
+function isLiveSession(session, now = Date.now()) {
+  // Sessions saved by the previous tracking version are retired, so every
+  // session carries its start-of-visit kitchen status from the first row.
+  return !!session && session.v === TRACKING_VERSION && now - session.lastSeen <= SESSION_IDLE_MS;
+}
+function getTrackingContext({ touch = true } = {}) {
   let visitorId = null, isReturning = false;
   try {
     visitorId = localStorage.getItem("ht_visitor_id");
@@ -844,7 +870,8 @@ function getTrackingContext() {
 
   let session = readStoredSession();
   const now = Date.now();
-  if (!session || now - session.lastSeen > SESSION_IDLE_MS) {
+  let isNew = false;
+  if (!isLiveSession(session, now)) {
     const params = new URLSearchParams(window.location.search);
     let referrer = "";
     try {
@@ -852,33 +879,42 @@ function getTrackingContext() {
       if (host && host !== window.location.hostname) referrer = host.replace(/^www\./, "");
     } catch { /* unparseable referrer — treat as direct */ }
     session = {
+      v: TRACKING_VERSION,
       id: genId() + genId(),
       sent: [],
       isReturning,
+      kitchenOpen: trackingKitchenOpen,
       referrer: referrer.slice(0, 120),
       utmSource: (params.get("utm_source") || "").slice(0, 60).toLowerCase(),
       utmCampaign: (params.get("utm_campaign") || "").slice(0, 60).toLowerCase(),
+      lastSeen: now,
     };
+    isNew = true;
   }
-  session.lastSeen = now;
-  return { visitorId, session };
+  if (touch) session.lastSeen = now;
+  return { visitorId, session, isNew };
 }
-function trackEvent(name, props = null, onceKey = name) {
+
+// opts.variant  — meal variant for plan_open / variant_add
+// opts.orderId  — order_placed only; the database also rejects a repeat
+// opts.passive  — background notices (kitchen switched while browsing):
+//                 only attach to a session the customer is active in, and
+//                 never start or extend one
+function trackEvent(name, { props = null, variant = null, orderId = null, passive = false } = {}, onceKey = name) {
   if (typeof window === "undefined") return;
   try { if (localStorage.getItem("ht_owner_device") === "1") return; } catch { /* storage blocked */ }
-  const { visitorId, session } = getTrackingContext();
+  if (passive && !isLiveSession(readStoredSession())) return;
+  const { visitorId, session, isNew } = getTrackingContext({ touch: !passive });
   // Funnel steps count once per session; repeated taps don't add rows.
   if (onceKey && session.sent.includes(onceKey)) {
     try { localStorage.setItem("ht_session", JSON.stringify(session)); } catch { /* ignore */ }
     return;
   }
-  if (onceKey) session.sent.push(onceKey);
-  try { localStorage.setItem("ht_session", JSON.stringify(session)); } catch { /* ignore */ }
 
   const isMobile = window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth < 768;
   const installed = !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
-  supabase.from("site_events").insert({
-    event_name: name,
+  const row = (eventName, extra = {}) => ({
+    event_name: eventName,
     visitor_id: visitorId,
     session_id: session.id,
     is_returning: session.isReturning,
@@ -887,8 +923,31 @@ function trackEvent(name, props = null, onceKey = name) {
     utm_campaign: session.utmCampaign || null,
     device: isMobile ? "mobile" : "desktop",
     installed,
-    props,
-  }).then(({ error }) => {
+    kitchen_open: trackingKitchenOpen,
+    session_kitchen_open: session.kitchenOpen ?? null,
+    tracking_version: TRACKING_VERSION,
+    props: null,
+    variant: null,
+    order_id: null,
+    ...extra,
+  });
+
+  // A session started by something other than the page opening (e.g. the
+  // customer comes back to an open tab after 30 min) still opens with a
+  // visit row, so "Opened the site" stays the top of the funnel.
+  const rows = [];
+  if (isNew && name !== "visit" && !session.sent.includes("visit")) {
+    session.sent.push("visit");
+    rows.push(row("visit"));
+  }
+  if (onceKey) session.sent.push(onceKey);
+  // The table only accepts the four stable variant ids; anything else is dropped
+  // rather than letting the whole insert (and its visit row) be rejected.
+  const safeVariant = ["mini", "standard", "goldMini", "gold"].includes(variant) ? variant : null;
+  rows.push(row(name, { props, variant: safeVariant, order_id: orderId }));
+  try { localStorage.setItem("ht_session", JSON.stringify(session)); } catch { /* ignore */ }
+
+  supabase.from("site_events").insert(rows).then(({ error }) => {
     if (error) console.warn("[analytics] event not saved:", name, error.message);
   });
 }
@@ -2742,19 +2801,6 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   }, []);
   const [lookupPhone, setLookupPhone] = useState("");
 
-  // ── Site analytics: visit → menu → plan → cart → checkout → order ──
-  // Driven off state changes rather than individual buttons, so every path
-  // into a step (Order Now, rating skip, "order again" etc.) is counted.
-  useEffect(() => { trackEvent("visit"); }, []);
-  useEffect(() => { if (step === "order") trackEvent("menu_view"); }, [step]);
-  useEffect(() => {
-    if (planChoiceModal) trackEvent("plan_open", { plan: planChoiceModal }, `plan_open:${planChoiceModal}`);
-  }, [planChoiceModal]);
-  const cartHasItems = Object.keys(cart).length > 0;
-  useEffect(() => { if (cartHasItems) trackEvent("add_to_cart"); }, [cartHasItems]);
-  useEffect(() => { if (showModal) trackEvent("checkout_open"); }, [showModal]);
-  useEffect(() => { if (showContact) trackEvent("contact_open"); }, [showContact]);
-
   // ── Rating state ──
   // rememberedPhone: read from localStorage on mount; identifies returning customer
   // ratingCardDismissed: session-only flag; goes true on either Submit OR Skip.
@@ -2927,9 +2973,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       if (res.reason === "kitchen_closed") setStep("home");
       return;
     }
-    // Only counted once the order was actually saved. Not once-per-session:
-    // a customer placing two orders counts twice.
-    trackEvent("order_placed", { order_id: order.id, total: order.total }, null);
+    // Only counted once the order was actually saved. Once per order id (not
+    // per session): two orders count twice, a retry of the same one doesn't.
+    // Which meals were ordered is read from the saved order on the server.
+    trackEvent("order_placed", { orderId: order.id, props: { order_id: order.id, total: order.total } }, `order:${order.id}`);
     setActiveOrder(order);
     setStep("track");
     setCart({});
@@ -2994,6 +3041,37 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       setShowModal(false);
     }
   }, [kitchenOpen, step]);
+
+  // ── Site analytics: visit → menu → plan → cart → checkout → order ──
+  // Driven off state changes rather than individual buttons, so every path
+  // into a step (Order Now, rating skip, "order again" etc.) is counted.
+  // Kitchen status goes first: effects run in order, so the visit row below
+  // already records whether customers could order when the visit started.
+  const canOrderNow = !!menuAvailable;
+  const prevCanOrderRef = useRef(null);
+  useEffect(() => {
+    setTrackingKitchenOpen(canOrderNow);
+    if (prevCanOrderRef.current !== null && prevCanOrderRef.current !== canOrderNow) {
+      trackEvent("kitchen_change", { props: { open: canOrderNow }, passive: true }, null);
+    }
+    prevCanOrderRef.current = canOrderNow;
+  }, [canOrderNow]);
+  useEffect(() => { trackEvent("visit"); }, []);
+  useEffect(() => { if (step === "order") trackEvent("menu_view"); }, [step]);
+  useEffect(() => {
+    if (planChoiceModal) {
+      trackEvent("plan_open", { variant: planChoiceModal, props: { plan: planChoiceModal } }, `plan_open:${planChoiceModal}`);
+    }
+  }, [planChoiceModal]);
+  const cartHasItems = Object.keys(cart).length > 0;
+  useEffect(() => { if (cartHasItems) trackEvent("add_to_cart"); }, [cartHasItems]);
+  // Once per session per variant, however many times it's added or its qty changed.
+  const cartVariants = [...new Set(Object.keys(cart).map(variantOfCartId).filter(Boolean))].sort().join(",");
+  useEffect(() => {
+    cartVariants.split(",").filter(Boolean).forEach(v => trackEvent("variant_add", { variant: v }, `variant_add:${v}`));
+  }, [cartVariants]);
+  useEffect(() => { if (showModal) trackEvent("checkout_open"); }, [showModal]);
+  useEffect(() => { if (showContact) trackEvent("contact_open"); }, [showContact]);
 
   // ── TRACK VIEW ──
   if (step === "track" && activeOrder) {
@@ -5728,9 +5806,11 @@ function SalesDashboardCard({ allOrders }) {
 // ─────────────────────────────────────────────
 // VISITORS (site analytics funnel)
 // ─────────────────────────────────────────────
-// Reads the site_analytics() summary built from site_events. Counts are
-// per session (one visit to the site), so a customer who taps "Add" five
-// times still counts once at that step.
+// Reads the site_analytics() summary (stage14 SQL). Counts are per session
+// (one visit to the site), so a customer who taps "Add" five times still
+// counts once at that step. Visitors are anonymous browsers, not verified
+// people. Date, meal period and kitchen filters are applied together on the
+// server, all in India time.
 const FUNNEL_STEPS = [
   ["visit",         "Opened the site"],
   ["menu_view",     "Viewed the menu"],
@@ -5738,16 +5818,55 @@ const FUNNEL_STEPS = [
   ["checkout_open", "Opened checkout"],
   ["order_placed",  "Placed an order"],
 ];
-const PLAN_LABELS = { gold: "Homely Gold", standard: "Standard", mini: "Mini" };
+const VISITOR_PERIODS = [["today", "Today"], ["week", "Last 7 days"], ["month", "Last 30 days"]];
+const MEAL_FILTERS = [["all", "Combined"], ["lunch", "Lunch", "before 4 PM"], ["dinner", "Dinner", "4 PM onwards"]];
+const KITCHEN_FILTERS = [["all", "All visits"], ["open", "Kitchen open"], ["closed", "Kitchen closed"]];
+const MEAL_INFO = "Each visit belongs to the meal period it started in (India time). A visit that starts at 3:55 PM and orders at 4:10 PM stays under Lunch. Combined counts each browser once, so it can be less than Lunch + Dinner.";
+const KITCHEN_INFO = "Kitchen open = customers could order when the visit started (kitchen switched on and today's menu published). A visit keeps that status even if the kitchen opens or closes while they browse; those visits are counted separately.";
 
 function istDaysAgo(days) {
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   return new Date(Date.now() + IST_OFFSET_MS - days * 86400000).toISOString().split("T")[0];
 }
 function pctOf(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+// For conversion figures: "—" when there is nothing to divide by.
+function pctText(n, d) { return d ? `${Math.round((n / d) * 100)}%` : "—"; }
+function fmtSince(iso) {
+  return iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : null;
+}
+
+function FilterButtons({ options, value, onChange, accent }) {
+  return (
+    <div role="group" style={{ display: "flex", gap: 6 }}>
+      {options.map(([key, label, sub]) => {
+        const on = value === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            aria-pressed={on}
+            className="ht-btn btn-sm"
+            style={{
+              flex: 1, minWidth: 0, flexDirection: "column", gap: 1, lineHeight: 1.15, padding: "7px 4px",
+              background: on ? accent : C.white,
+              color: on ? C.white : C.inkMid,
+              border: `1.5px solid ${on ? accent : C.border}`,
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>{label}</span>
+            {sub && <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.85 }}>{sub}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function VisitorsCard() {
-  const [period, setPeriod] = useState("week"); // "today" | "week" | "month"
+  const [period, setPeriod] = useState("week");    // "today" | "week" | "month"
+  const [meal, setMeal] = useState("all");          // "all" | "lunch" | "dinner"
+  const [kitchen, setKitchen] = useState("all");    // "all" | "open" | "closed"
+  const [info, setInfo] = useState(null);           // which ⓘ note is open
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -5757,22 +5876,34 @@ function VisitorsCard() {
     const from = period === "today" ? todayStr() : istDaysAgo(period === "week" ? 6 : 29);
     setLoading(true);
     setError("");
-    supabase.rpc("site_analytics", { p_from: from, p_to: todayStr() }).then(({ data, error }) => {
+    supabase.rpc("site_analytics", { p_from: from, p_to: todayStr(), p_meal: meal, p_kitchen: kitchen }).then(({ data, error }) => {
       if (cancelled) return;
       setLoading(false);
       if (error) setError(error.message);
       else setData(data);
     });
     return () => { cancelled = true; };
-  }, [period]);
+  }, [period, meal, kitchen]);
 
   const funnel = data?.funnel || {};
   const totals = data?.totals || {};
+  const kitchenStats = data?.kitchen || {};
+  const tracking = data?.tracking || {};
   const stepCount = (key) => funnel[key]?.sessions || 0;
-  const visits = stepCount("visit");
-  const orders = stepCount("order_placed");
+  const visits = totals.sessions || 0;
+  const orderVisits = totals.order_visits || 0;
   const daily = data?.daily || [];
   const maxDaily = Math.max(...daily.map(d => d.visitors), 1);
+  const variants = data?.variants || [];
+  const hasDetailed = (totals.detailed_sessions || 0) > 0;
+  const trackingSince = fmtSince(tracking.tracking_since);
+  const detailedSince = fmtSince(tracking.detailed_since);
+  const labelOf = (list, key) => list.find(([k]) => k === key)?.[1];
+  const selectionLabel = [
+    labelOf(VISITOR_PERIODS, period),
+    meal === "all" ? "Lunch + Dinner" : labelOf(MEAL_FILTERS, meal),
+    labelOf(KITCHEN_FILTERS, kitchen),
+  ].join(" · ");
 
   const tile = (label, value, sub) => (
     <div className="ht-card" style={{ padding: 14 }}>
@@ -5781,110 +5912,202 @@ function VisitorsCard() {
       {sub && <div style={{ fontSize: 11, color: C.inkMid, marginTop: 2 }}>{sub}</div>}
     </div>
   );
+  const filterLabel = (text, infoKey) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 700, color: C.inkLight, margin: "0 0 5px 2px" }}>
+      {text}
+      {infoKey && (
+        <button
+          onClick={() => setInfo(i => (i === infoKey ? null : infoKey))}
+          title={infoKey === "meal" ? MEAL_INFO : KITCHEN_INFO}
+          aria-label={`What does ${text.toLowerCase()} mean?`}
+          aria-expanded={info === infoKey}
+          style={{ border: "none", background: "none", color: C.saffron, fontSize: 13, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}
+        >ⓘ</button>
+      )}
+    </div>
+  );
+  const infoNote = (key, text) => info === key && (
+    <div style={{ fontSize: 11.5, color: C.inkMid, background: C.saffronLight, borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>{text}</div>
+  );
+  const num = { padding: "8px 6px", textAlign: "right", color: C.ink, whiteSpace: "nowrap", borderBottom: `1px solid ${C.border}` };
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {[["today", "Today"], ["week", "Last 7 days"], ["month", "Last 30 days"]].map(([key, lbl]) => (
-          <button
-            key={key}
-            onClick={() => setPeriod(key)}
-            className="ht-btn btn-sm"
-            style={{
-              flex: 1,
-              background: period === key ? C.saffron : C.white,
-              color: period === key ? C.white : C.inkMid,
-              border: `1.5px solid ${period === key ? C.saffron : C.border}`,
-            }}
-          >
-            {lbl}
-          </button>
-        ))}
+      <div style={{ marginBottom: 12 }}>
+        <FilterButtons options={VISITOR_PERIODS} value={period} onChange={setPeriod} accent={C.saffron} />
       </div>
+      <div style={{ marginBottom: 12 }}>
+        {filterLabel("Meal period", "meal")}
+        <FilterButtons options={MEAL_FILTERS} value={meal} onChange={setMeal} accent={C.ink} />
+        {infoNote("meal", MEAL_INFO)}
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        {filterLabel("Kitchen status", "kitchen")}
+        <FilterButtons options={KITCHEN_FILTERS} value={kitchen} onChange={setKitchen} accent={C.green} />
+        {infoNote("kitchen", KITCHEN_INFO)}
+      </div>
+      <p style={{ fontSize: 12, color: C.inkMid, marginBottom: 14 }}>
+        Showing <b style={{ color: C.ink }}>{selectionLabel}</b>{loading && data ? " · updating…" : ""}
+      </p>
 
       {error && (
         <div className="ht-card" style={{ padding: 16, marginBottom: 16, background: C.redLight }}>
           <p style={{ fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 4 }}>Couldn't load visitor data</p>
           <p style={{ fontSize: 12, color: C.inkMid }}>{error}</p>
-          <p style={{ fontSize: 11, color: C.inkLight, marginTop: 6 }}>If this is new, check that stage13_site_events.sql has been run in Supabase.</p>
+          <p style={{ fontSize: 11, color: C.inkLight, marginTop: 6 }}>If this is new, check that stage14_visitor_filters.sql has been run in Supabase.</p>
         </div>
       )}
 
       {loading && !data && <p style={{ fontSize: 13, color: C.inkMid, textAlign: "center", padding: 20 }}>Loading…</p>}
 
-      {data && <div style={{ opacity: loading ? 0.5 : 1 }}>
+      {data && <div style={{ opacity: loading ? 0.5 : 1, transition: "opacity 0.15s" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-          {tile("👣 Visitors", totals.visitors || 0, `${totals.sessions || 0} visits`)}
+          {tile("👣 Visitors", totals.visitors || 0, `${visits} visits · browsers, not people`)}
           {tile("🔁 Returning", totals.returning_visitors || 0, `${pctOf(totals.returning_visitors, totals.visitors)}% of visitors`)}
-          {tile("🛒 Orders from visits", orders, `${pctOf(orders, visits)}% of visits ordered`)}
-          {tile("📱 On phone", `${pctOf(totals.mobile_sessions, totals.sessions)}%`, `${totals.installed_sessions || 0} visits from installed app`)}
+          {tile("🛒 Orders from visits", orderVisits, `${pctText(orderVisits, visits)} overall conversion`)}
+          {tile("📱 On phone", `${pctOf(totals.mobile_sessions, visits)}%`, `${totals.installed_sessions || 0} visits from installed app`)}
         </div>
 
+        {/* Kitchen split ignores the kitchen filter so open vs closed is always comparable */}
         <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Click-through funnel</h3>
-          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 14 }}>How many visits reached each step.</p>
-          {FUNNEL_STEPS.map(([key, label], i) => {
-            const n = stepCount(key);
-            const prev = i === 0 ? n : stepCount(FUNNEL_STEPS[i - 1][0]);
-            const lost = Math.max(prev - n, 0);
-            return (
-              <div key={key} style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                  <span style={{ color: C.ink, fontWeight: 600 }}>{label}</span>
-                  <span style={{ color: C.inkMid }}><b style={{ color: C.ink }}>{n}</b> · {pctOf(n, visits)}%</span>
-                </div>
-                <div style={{ height: 10, background: C.saffronLight, borderRadius: 5, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(pctOf(n, visits), 100)}%`, height: "100%", background: key === "order_placed" ? C.green : C.saffron, borderRadius: 5 }} />
-                </div>
-                {i > 0 && lost > 0 && (
-                  <div style={{ fontSize: 11, color: C.inkLight, marginTop: 3 }}>↓ {lost} dropped off here ({pctOf(lost, prev)}%)</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Where visitors came from</h3>
-          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>From link tags (?utm_source=…) or the referring website.</p>
-          {(data.sources || []).length === 0 && <p style={{ fontSize: 13, color: C.inkMid }}>No visits yet.</p>}
-          {(data.sources || []).map(s => (
-            <div key={s.source} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
-              <span style={{ color: C.ink, fontWeight: 600, textTransform: "capitalize" }}>{s.source}</span>
-              <span style={{ color: C.inkMid }}>{s.sessions} visits · {s.orders} orders ({pctOf(s.orders, s.sessions)}%)</span>
-            </div>
-          ))}
-        </div>
-
-        {period !== "today" && daily.length > 0 && (
-          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 14 }}>Visitors per day</h3>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 80 }}>
-              {daily.map(d => (
-                <div key={d.day} title={`${fmtDate(d.day)}: ${d.visitors} visitors, ${d.orders} orders`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                  {period === "week" && <div style={{ fontSize: 10, color: C.inkLight }}>{d.visitors}</div>}
-                  <div style={{ width: "100%", height: `${Math.max((d.visitors / maxDaily) * 60, d.visitors > 0 ? 4 : 0)}px`, background: d.day === todayStr() ? C.saffron : C.border, borderRadius: "3px 3px 0 0" }} />
-                  {period === "week" && <div style={{ fontSize: 10, color: C.inkMid }}>{new Date(d.day).toLocaleDateString("en-IN", { weekday: "short" })}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {(data.plans || []).length > 0 && (
-          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 12 }}>Plans customers looked at</h3>
-            {data.plans.map(p => (
-              <div key={p.plan} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13 }}>
-                <span style={{ color: C.ink, fontWeight: 600 }}>{PLAN_LABELS[p.plan] || p.plan}</span>
-                <span style={{ color: C.inkMid }}>{p.sessions} visits opened it</span>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🍳 Kitchen status when the visit started</h3>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>For the selected dates and meal period, whatever kitchen filter is chosen.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+            {[
+              ["Open", kitchenStats.open_visits, C.green, C.greenLight],
+              ["Closed", kitchenStats.closed_visits, C.red, C.redLight],
+              ["Not tracked", kitchenStats.unknown_visits, C.inkMid, C.cream],
+            ].map(([lbl, n, color, bg]) => (
+              <div key={lbl} style={{ background: bg, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color }}>{n || 0}</div>
+                <div style={{ fontSize: 11, color: C.inkMid, fontWeight: 600 }}>{lbl} visits</div>
               </div>
             ))}
           </div>
-        )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderTop: `1px solid ${C.border}`, fontSize: 13 }}>
+            <span style={{ color: C.ink, fontWeight: 700 }}>Conversion while kitchen open</span>
+            <span style={{ color: C.green, fontWeight: 800, fontSize: 16 }}>{pctText(kitchenStats.open_visits_ordered, kitchenStats.open_visits)}</span>
+          </div>
+          <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 6 }}>
+            {kitchenStats.open_visits_ordered || 0} of {kitchenStats.open_visits || 0} visits that started while open placed an order.
+          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderTop: `1px solid ${C.border}`, fontSize: 13 }}>
+            <span style={{ color: C.inkMid, fontWeight: 600 }}>Overall conversion (current filters)</span>
+            <span style={{ color: C.ink, fontWeight: 700 }}>{pctText(orderVisits, visits)}</span>
+          </div>
+          {kitchenStats.closed_visits > 0 && (
+            <p style={{ fontSize: 11, color: C.inkMid, marginTop: 6 }}>Visits while closed are demand you couldn't take orders for.</p>
+          )}
+          {kitchenStats.changed_visits > 0 && (
+            <p style={{ fontSize: 11, color: C.inkMid, marginTop: 6 }}>
+              {kitchenStats.changed_visits} visit{kitchenStats.changed_visits === 1 ? "" : "s"} saw the kitchen open or close while browsing.
+            </p>
+          )}
+          {kitchenStats.unknown_visits > 0 && (
+            <p style={{ fontSize: 11, color: C.inkLight, marginTop: 6 }}>
+              Kitchen status is recorded {detailedSince ? `from ${detailedSince}` : "from this update onwards"}; earlier visits show as not tracked and appear only under All visits.
+            </p>
+          )}
+        </div>
 
-        <p style={{ fontSize: 11, color: C.inkLight, textAlign: "center", marginBottom: 8 }}>
-          Your own devices are excluded once you've logged in here.
+        {visits === 0 ? (
+          <div className="ht-card" style={{ padding: 24, marginBottom: 16, textAlign: "center" }}>
+            <p style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 4 }}>No visits match these filters</p>
+            <p style={{ fontSize: 12, color: C.inkMid }}>Try a longer date range, Combined, or All visits.</p>
+          </div>
+        ) : <>
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Click-through funnel</h3>
+            <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 14 }}>How many visits reached each step.</p>
+            {FUNNEL_STEPS.map(([key, label], i) => {
+              const n = stepCount(key);
+              const prev = i === 0 ? n : stepCount(FUNNEL_STEPS[i - 1][0]);
+              const lost = Math.max(prev - n, 0);
+              return (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                    <span style={{ color: C.ink, fontWeight: 600 }}>{label}</span>
+                    <span style={{ color: C.inkMid }}><b style={{ color: C.ink }}>{n}</b> · {pctOf(n, visits)}%</span>
+                  </div>
+                  <div style={{ height: 10, background: C.saffronLight, borderRadius: 5, overflow: "hidden" }}>
+                    <div style={{ width: `${Math.min(pctOf(n, visits), 100)}%`, height: "100%", background: key === "order_placed" ? C.green : C.saffron, borderRadius: 5 }} />
+                  </div>
+                  {i > 0 && lost > 0 && (
+                    <div style={{ fontSize: 11, color: C.inkLight, marginTop: 3 }}>↓ {lost} dropped off here ({pctOf(lost, prev)}%)</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Conversion by meal</h3>
+            <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Visits that viewed, added and ordered each meal. Scroll sideways on a phone.</p>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ width: "100%", minWidth: 560, borderCollapse: "collapse", fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    {["Meal variant", "Visits viewing variant", "Visits adding variant to cart", "Visits ordering variant", "View → cart %", "View → order %", "Units ordered"].map((h, i) => (
+                      <th key={h} style={{ textAlign: i ? "right" : "left", fontSize: 10.5, color: C.inkLight, fontWeight: 700, padding: "6px 6px", borderBottom: `1.5px solid ${C.border}`, verticalAlign: "bottom", lineHeight: 1.2 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {variants.map(v => (
+                    <tr key={v.variant}>
+                      <td style={{ ...num, textAlign: "left", fontWeight: 700 }}>{v.label}</td>
+                      <td style={num}>{v.view_visits}</td>
+                      <td style={num}>{hasDetailed ? v.add_visits : <span style={{ color: C.inkLight }}>Not tracked</span>}</td>
+                      <td style={num}>{v.order_visits}</td>
+                      <td style={num}>{hasDetailed ? pctText(v.view_then_add, v.view_visits_tracked) : <span style={{ color: C.inkLight }}>Not tracked</span>}</td>
+                      <td style={num}>{pctText(v.view_then_order, v.view_visits)}</td>
+                      <td style={num}>{Number(v.units) || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 10, lineHeight: 1.45 }}>
+              <p>Each visit counts once per meal at each stage. One visit can view, add or order several meals, so these rows can add up to more than the funnel above.</p>
+              <p style={{ marginTop: 4 }}>Viewing = opened that meal's options. Conversion only uses visits where the view was recorded before the add or order; orders without a recorded view still count under "Visits ordering". Units = total quantity ordered.</p>
+              <p style={{ marginTop: 4 }}>
+                {detailedSince
+                  ? `Add-to-cart by meal is tracked from ${detailedSince}; View → cart % uses only visits from then on.`
+                  : "Add-to-cart by meal is tracked from this update onwards."}
+              </p>
+            </div>
+          </div>
+
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Where visitors came from</h3>
+            <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>From link tags (?utm_source=…) or the referring website.</p>
+            {(data.sources || []).map(s => (
+              <div key={s.source} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                <span style={{ color: C.ink, fontWeight: 600, textTransform: "capitalize" }}>{s.source}</span>
+                <span style={{ color: C.inkMid }}>{s.sessions} visits · {s.orders} orders ({pctOf(s.orders, s.sessions)}%)</span>
+              </div>
+            ))}
+          </div>
+
+          {period !== "today" && daily.length > 0 && (
+            <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 14 }}>Visitors per day</h3>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 80 }}>
+                {daily.map(d => (
+                  <div key={d.day} title={`${fmtDate(d.day)}: ${d.visitors} visitors, ${d.orders} visits ordered`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    {period === "week" && <div style={{ fontSize: 10, color: C.inkLight }}>{d.visitors}</div>}
+                    <div style={{ width: "100%", height: `${Math.max((d.visitors / maxDaily) * 60, d.visitors > 0 ? 4 : 0)}px`, background: d.day === todayStr() ? C.saffron : C.border, borderRadius: "3px 3px 0 0" }} />
+                    {period === "week" && <div style={{ fontSize: 10, color: C.inkMid }}>{new Date(d.day).toLocaleDateString("en-IN", { weekday: "short" })}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>}
+
+        <p style={{ fontSize: 11, color: C.inkLight, textAlign: "center", marginBottom: 8, lineHeight: 1.45 }}>
+          Visitors are anonymous browsers, not verified people. Your own devices are excluded once you've logged in here.
+          {trackingSince ? ` Visit tracking since ${trackingSince}.` : ""}
           {funnel.contact_open?.sessions ? ` · ${funnel.contact_open.sessions} opened Contact Us` : ""}
           {funnel.track_order?.sessions ? ` · ${funnel.track_order.sessions} tracked an order` : ""}
         </p>
