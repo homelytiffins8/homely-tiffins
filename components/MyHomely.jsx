@@ -368,6 +368,9 @@ export function MyHomely({ supabase, account, towers = [], canOrder, onClose, on
   }, [supabase]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
+  // Every section opens at the top, not wherever the previous screen was scrolled.
+  useEffect(() => { try { window.scrollTo(0, 0); } catch { /* not in a browser */ } }, [view]);
+
   const p = account.profile || {};
   const back = () => setView("home");
 
@@ -732,7 +735,9 @@ function RewardsView({ rewards, onBack }) {
   const ref = rewards.referral || {};
   const loy = rewards.loyalty || {};
   const code = rewards.referralCode;
-  const shareText = `Try Homely Tiffins — ghar jaisa khana! Use my code ${code}${ref.referredDiscount ? ` for ₹${ref.referredDiscount} off` : ""} your first order: https://homelytiffins.com`;
+  const shareText = ref.enabled === false
+    ? `Try Homely Tiffins — ghar jaisa khana! https://homelytiffins.com`
+    : `Try Homely Tiffins — ghar jaisa khana! Use my code ${code}${ref.referredDiscount ? ` for ₹${ref.referredDiscount} off` : ""} your first order: https://homelytiffins.com`;
 
   const copy = async () => { if (await copyText(code)) { setCopied(true); setTimeout(() => setCopied(false), 1800); } };
   const share = () => { if (navigator.share) navigator.share({ text: shareText }).catch(() => {}); else copy(); };
@@ -783,13 +788,17 @@ function RewardsView({ rewards, onBack }) {
         </Card>
       )}
 
-      {/* Referral */}
-      {ref.enabled !== false && (
+      {/* Referral — the code is always shown; the offer text only while the programme is on */}
+      {(
         <Card style={{ background: "#FFF6EC", borderColor: HC.orange }}>
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🎁 Refer a friend</div>
           <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 10 }}>
-            {ref.referredDiscount ? `Friends save ₹${ref.referredDiscount} on their first order` : "Share Homely with friends"}
-            {ref.referrerReward ? ` and you get ₹${ref.referrerReward} credit when it's delivered.` : "."}
+            {ref.enabled === false
+              ? "Share Homely with friends using your personal code."
+              : <>
+                  {ref.referredDiscount ? `Friends save ₹${ref.referredDiscount} on their first order` : "Share Homely with friends"}
+                  {ref.referrerReward ? ` and you get ₹${ref.referrerReward} credit when it's delivered.` : "."}
+                </>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <code style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, letterSpacing: 1.5, background: "#fff", color: HC.orangeDeep, padding: "9px 12px", borderRadius: 10, border: `1.5px dashed ${HC.orange}` }}>{code}</code>
