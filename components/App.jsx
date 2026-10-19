@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { CustomersSection, PreferenceFormPage, CustomerInsightsReport, PreferencePromoCard, PreferenceAutoPrompt, AcquisitionSourcePrompt } from "./CustomerHub";
+import { MyHomely, MyHomelyLogin, useCustomerAccount, cartVariant } from "./MyHomely";
+import { LoyaltyCenter } from "./LoyaltyCenter";
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -1239,10 +1241,23 @@ const GlobalStyle = () => (
 // ─────────────────────────────────────────────
 // CUSTOMER DETAILS POPUP (bottom sheet)
 // ─────────────────────────────────────────────
-function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], onConfirm, onClose }) {
-  const [form, setForm] = useState({ name: "", phone: "", tower: "", flat: "" });
+// `account` (signed-in My Homely customer): prefills the form, locks the
+// verified phone, and offers their Homely Points / free-meal vouchers.
+// The server (place_order) re-checks every reward; amounts shown here are
+// the same calculation, for display.
+function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], account = null, onConfirm, onClose }) {
+  const prof = account?.profile || null;
+  const [form, setForm] = useState({
+    name: prof?.name || "", phone: account?.phone || "", tower: prof?.tower || "", flat: prof?.flat || "",
+  });
+  const [deliveryInstructions, setDeliveryInstructions] = useState(prof?.deliveryInstructions || "");
   const [errors, setErrors] = useState({});
   const [promoText, setPromoText] = useState("");
+  const loyalty = account?.rewards?.loyalty;
+  const cartVariants = new Set(Object.keys(cart).map(cartVariant).filter(Boolean));
+  const usableVouchers = (loyalty?.vouchers || []).filter(v => v.status === "available" && cartVariants.has(v.variant));
+  const [voucherId, setVoucherId] = useState("");
+  const [usePoints, setUsePoints] = useState(false);
   // Live-resolved promo/referral result; recomputed whenever inputs change.
   // ok:true + discount==0 (no code entered) is the neutral state.
   const promoResult = resolvePromoOrReferral({
@@ -1253,7 +1268,24 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
     phone: form.phone.trim(),
     cartTotal,
   });
-  const discount = promoResult.ok ? promoResult.discount : 0;
+  const codeDiscount = promoResult.ok ? promoResult.discount : 0;
+  // Free meal: one unit of that meal at today's price.
+  const voucher = usableVouchers.find(v => v.id === voucherId) || null;
+  const voucherUnitPrice = voucher
+    ? Math.max(0, ...Object.keys(cart).filter(id => cartVariant(id) === voucher.variant)
+        .map(id => menuItems.find(i => i.id === id)?.price || 0))
+    : 0;
+  const voucherDiscount = Math.min(voucherUnitPrice, Math.max(0, cartTotal - codeDiscount));
+  // Points: capped by balance and by maxRedeemPct of what's left to pay.
+  const pointValue = Number(loyalty?.pointValue) || 0;
+  const pointsBalance = Number(loyalty?.balance) || 0;
+  const canUsePoints = !!(loyalty?.enabled && pointValue > 0 && pointsBalance > 0 && pointsBalance >= (loyalty.minRedeem || 0));
+  const payableBeforePoints = Math.max(0, cartTotal - codeDiscount - voucherDiscount);
+  const pointsDiscount = usePoints && canUsePoints
+    ? Math.max(0, Math.min(Math.floor(pointsBalance * pointValue), Math.floor(payableBeforePoints * Math.min(100, Math.max(0, loyalty.maxRedeemPct ?? 100)) / 100)))
+    : 0;
+  const pointsToUse = pointsDiscount > 0 ? Math.ceil(pointsDiscount / pointValue) : 0;
+  const discount = codeDiscount + voucherDiscount + pointsDiscount;
   const finalTotal = Math.max(0, cartTotal - discount);
 
   const validate = () => {
@@ -1289,7 +1321,16 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
       date: todayStr(),
       createdAt: new Date().toISOString(),
     };
-    if (promoResult.ok && discount > 0) {
+    if (deliveryInstructions.trim()) order.deliveryInstructions = deliveryInstructions.trim().slice(0, 300);
+    if (voucher) order.voucherId = voucher.id;
+    if (pointsToUse > 0) order.redeemPoints = pointsToUse;
+    if (discount > 0) {
+      const labels = [];
+      if (voucher) labels.push(voucher.label);
+      if (pointsToUse > 0) labels.push(`${pointsToUse} Homely Points`);
+      if (labels.length) order.promoLabel = labels.join(" + ");
+    }
+    if (promoResult.ok && codeDiscount > 0) {
       if (promoResult.kind === "promo") {
         order.promoCode = promoResult.promoCode;
         order.promoLabel = promoResult.description || promoResult.promoCode;
@@ -1341,9 +1382,11 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
               type="tel"
               maxLength={10}
               value={form.phone}
-              onChange={e => { setForm(p => ({ ...p, phone: e.target.value })); setErrors(p => ({ ...p, phone: "" })); }}
-              style={errors.phone ? { borderColor: C.red } : {}}
+              readOnly={!!account?.phone}
+              onChange={e => { if (account?.phone) return; setForm(p => ({ ...p, phone: e.target.value })); setErrors(p => ({ ...p, phone: "" })); }}
+              style={{ ...(errors.phone ? { borderColor: C.red } : {}), ...(account?.phone ? { background: C.saffronLight, color: C.inkMid } : {}) }}
             />
+            {account?.phone && <p style={{ fontSize: 11, color: C.inkLight, marginTop: 3 }}>Verified · from My Homely</p>}
             {errors.phone && <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{errors.phone}</p>}
           </div>
 
@@ -1374,7 +1417,46 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
               {errors.flat && <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{errors.flat}</p>}
             </div>
           </div>
+
+          {account && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, display: "block", marginBottom: 4 }}>
+                Delivery instructions <span style={{ color: C.inkLight, fontWeight: 400 }}>(optional)</span>
+              </label>
+              <input
+                className="ht-input"
+                placeholder="e.g. Leave with the guard"
+                value={deliveryInstructions}
+                maxLength={300}
+                onChange={e => setDeliveryInstructions(e.target.value)}
+              />
+            </div>
+          )}
         </div>
+
+        {/* My Homely rewards */}
+        {account && (usableVouchers.length > 0 || canUsePoints) && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", marginBottom: 6 }}>🎁 Your rewards</div>
+            {usableVouchers.map(v => (
+              <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, color: C.ink, cursor: "pointer" }}>
+                <input type="checkbox" checked={voucherId === v.id} onChange={() => setVoucherId(id => id === v.id ? "" : v.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                <span style={{ flex: 1 }}>{v.label}</span>
+                {voucherId === v.id && <span style={{ fontWeight: 700, color: "#2E7D32" }}>−₹{voucherDiscount}</span>}
+              </label>
+            ))}
+            {canUsePoints && (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, color: C.ink, cursor: "pointer" }}>
+                <input type="checkbox" checked={usePoints} onChange={() => setUsePoints(u => !u)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
+                <span style={{ flex: 1 }}>Use Homely Points <span style={{ color: C.inkLight }}>({pointsBalance} available)</span></span>
+                {usePoints && <span style={{ fontWeight: 700, color: "#2E7D32" }}>{pointsToUse} pts · −₹{pointsDiscount}</span>}
+              </label>
+            )}
+            {canUsePoints && loyalty.maxRedeemPct < 100 && (
+              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>Points can pay up to {loyalty.maxRedeemPct}% of an order.</div>
+            )}
+          </div>
+        )}
 
         {/* Promo / Referral code */}
         <div style={{ marginTop: 14 }}>
@@ -1388,9 +1470,9 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
             onChange={e => { setPromoText(e.target.value.toUpperCase()); setErrors(p => ({ ...p, promo: "" })); }}
             style={{ textTransform: "uppercase", ...(errors.promo ? { borderColor: C.red } : {}) }}
           />
-          {promoText.trim() && promoResult.ok && discount > 0 && (
+          {promoText.trim() && promoResult.ok && codeDiscount > 0 && (
             <p style={{ fontSize: 12, color: "#2E7D32", marginTop: 4, fontWeight: 600 }}>
-              ✓ {promoResult.description || "Code applied"} — you save ₹{discount}
+              ✓ {promoResult.description || "Code applied"} — you save ₹{codeDiscount}
             </p>
           )}
           {promoText.trim() && !promoResult.ok && (
@@ -1407,9 +1489,22 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.inkMid, marginBottom: 2 }}>
               <span>Subtotal</span><span>₹{cartTotal}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#2E7D32", marginBottom: 4 }}>
-              <span>Discount</span><span>−₹{discount}</span>
-            </div>
+            {codeDiscount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#2E7D32", marginBottom: 2 }}>
+                <span>Discount</span><span>−₹{codeDiscount}</span>
+              </div>
+            )}
+            {voucherDiscount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#2E7D32", marginBottom: 2 }}>
+                <span>{voucher.label}</span><span>−₹{voucherDiscount}</span>
+              </div>
+            )}
+            {pointsDiscount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#2E7D32", marginBottom: 2 }}>
+                <span>Homely Points ({pointsToUse})</span><span>−₹{pointsDiscount}</span>
+              </div>
+            )}
+            <div style={{ height: 2 }} />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800, color: C.ink }}>
               <span>You pay</span><span>₹{finalTotal}</span>
             </div>
@@ -1766,20 +1861,28 @@ function TodaysDishes({ planConfig }) {
 // ─────────────────────────────────────────────
 // PLAN CHOICE MODAL (customer) — Homely Gold / Mini customization
 // ─────────────────────────────────────────────
-function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
+// `preset` (Order Again): the choices from a past order — { bread, sweetOrRaita,
+// goldSize, standardBase, miniBase, dishText }. Sabji ids are per-day menu
+// slots, so past sabjis are only pre-ticked when the same dish (by name, from
+// dishText) is on today's menu; otherwise the customer picks today's.
+function PlanChoiceModal({ plan, planConfig, onAdd, onClose, preset = null, qty = 1 }) {
   const sabjis = planConfig.sabjis;
   const nonPremium = sabjis.filter(s => !s.premium).slice(0, 2);
   const isGold = plan === "gold";
   const isStandard = plan === "standard";
   const isMini = plan === "mini";
   const isGoldMini = plan === "goldMini";
-  const [bread, setBread] = useState(BREAD_CHOICES[0].id);
-  const [sabjiSel, setSabjiSel] = useState([]); // Gold: up to 2 sabji ids
-  const [sweetOrRaita, setSweetOrRaita] = useState("raita");
-  const [miniSabji, setMiniSabji] = useState(nonPremium[0]?.id || "");
-  const [standardBase, setStandardBase] = useState("rice"); // "rice" | "chapati"
-  const [miniBase, setMiniBase] = useState("chapati"); // "chapati" | "rice"
-  const [goldMiniSabji, setGoldMiniSabji] = useState(sabjis[0]?.id || ""); // Gold Mini: choice of any 1 of all 3 sabjis
+  const presetDishes = (list) => {
+    const text = (preset?.dishText || "").toLowerCase();
+    return text ? list.filter(s => s.name && text.includes(s.name.trim().toLowerCase())).map(s => s.id) : [];
+  };
+  const [bread, setBread] = useState(BREAD_CHOICES.some(b => b.id === preset?.bread) ? preset.bread : BREAD_CHOICES[0].id);
+  const [sabjiSel, setSabjiSel] = useState(() => isGold ? presetDishes(sabjis).slice(0, 2) : []); // Gold: up to 2 sabji ids
+  const [sweetOrRaita, setSweetOrRaita] = useState(preset?.sweetOrRaita === "sweet" ? "sweet" : "raita");
+  const [miniSabji, setMiniSabji] = useState(() => presetDishes(nonPremium)[0] || nonPremium[0]?.id || "");
+  const [standardBase, setStandardBase] = useState(preset?.standardBase === "chapati" ? "chapati" : "rice"); // "rice" | "chapati"
+  const [miniBase, setMiniBase] = useState(preset?.miniBase === "rice" ? "rice" : "chapati"); // "chapati" | "rice"
+  const [goldMiniSabji, setGoldMiniSabji] = useState(() => presetDishes(sabjis)[0] || sabjis[0]?.id || ""); // Gold Mini: choice of any 1 of all 3 sabjis
 
   // ── Homely Gold flow: two steps ──
   // Step 1 "build": pick bread + sabjis + raita/sweet (no size yet)
@@ -1788,7 +1891,10 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
   const goldMediumOn = planConfig.enabled?.goldMedium !== false;
   const goldLargeOn = planConfig.enabled?.goldLarge !== false;
   const [goldStep, setGoldStep] = useState("build");
-  const [goldSize, setGoldSize] = useState(goldMediumOn ? "medium" : "large");
+  const [goldSize, setGoldSize] = useState(
+    preset?.goldSize === "large" && goldLargeOn ? "large"
+      : preset?.goldSize === "medium" && goldMediumOn ? "medium"
+      : goldMediumOn ? "medium" : "large");
   const goldLargeSurcharge = planConfig.prices.goldLargeSurcharge || 0;
   const goldPrice = planConfig.prices.gold + (goldSize === "large" ? goldLargeSurcharge : 0);
 
@@ -1839,8 +1945,10 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
     }
   };
 
-  const title = isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : isGoldMini ? "✨ Homely Gold Mini" : "Homely Mini";
-  const subtitle = isStandard
+  const title = (isGold ? "✨ Homely Gold" : isStandard ? "Homely Standard" : isGoldMini ? "✨ Homely Gold Mini" : "Homely Mini") + (qty > 1 ? ` ×${qty}` : "");
+  const subtitle = preset
+    ? (isStandard ? "Order again — today's Standard thali" : "Order again — choose from today's menu")
+    : isStandard
     ? "This is what's included — just confirm"
     : isGold
     ? (goldStep === "build" ? "Step 1 of 2 · Build your tiffin" : "Step 2 of 2 · Choose container size")
@@ -2105,7 +2213,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose }) {
             ? "Choose a sabji to continue"
             : isGoldMini && !goldMiniValid
             ? "Choose a sabji to continue"
-            : `Add to Cart · ₹${isGold ? goldPrice : isStandard ? planConfig.prices.standard : isGoldMini ? planConfig.prices.goldMini : planConfig.prices.mini}`}
+            : `Add to Cart · ₹${(isGold ? goldPrice : isStandard ? planConfig.prices.standard : isGoldMini ? planConfig.prices.goldMini : planConfig.prices.mini) * qty}`}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>Cancel</button>
       </div>
@@ -2660,6 +2768,9 @@ const HomeStyle = () => (
 // ─────────────────────────────────────────────
 function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen, poll, promoCodes = [], referralConfig, customers = [], onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
   const [step, setStep] = useState("home");
+  // My Homely customer account (phone login). Guests never need it — the
+  // menu and checkout work exactly as before without signing in.
+  const account = useCustomerAccount(supabase);
   const [showContact, setShowContact] = useState(false);
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
   useEffect(() => {
@@ -2840,6 +2951,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       if (p) setRememberedPhone(p);
     } catch { /* private mode / storage disabled — silently ignore */ }
   }, []);
+  // A signed-in customer's verified phone wins over whatever this device
+  // last ordered with (tracking, rating prompt and notifications follow it).
+  useEffect(() => {
+    if (!account.phone) return;
+    setRememberedPhone(account.phone);
+    try { window.localStorage.setItem("htLastCustomerPhone", account.phone); } catch { /* storage blocked */ }
+  }, [account.phone]);
 
   // ── Customer's own orders, fetched by phone via RPC ──
   // The `orders` table has no anon SELECT policy (RLS only allows the owner
@@ -2963,13 +3081,84 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   }, [cart]);
 
   // Called by the choice dialog when the customer confirms a Gold/Mini configuration.
-  const addPlanToCart = (id, name, price) => {
+  const addPlanToCart = (id, name, price, qty = 1) => {
     setPlanCartMeta(prev => ({ ...prev, [id]: { name, price } }));
-    setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    setCart(prev => ({ ...prev, [id]: (prev[id] || 0) + qty }));
     setPlanChoiceModal(null);
     // Just close the dialog so the customer can add more variants; the extras
     // nudge now appears when they tap "Proceed to Order" instead.
   };
+
+  // ── Order Again ──
+  // Rebuilds a past order in the cart at TODAY's menu and prices. Each meal
+  // opens the usual choice dialog with the past choices preselected (sabjis
+  // change daily, so the customer confirms today's); extras / à-la-carte
+  // items are re-added only if they're on today's menu. Anything unavailable
+  // is listed before checkout. Nothing is ordered until they confirm checkout.
+  const [reorder, setReorder] = useState(null); // { meals: [...], simple: [...], unavailable: [...] }
+  const [reorderNotice, setReorderNotice] = useState(null); // { unavailable: [...], empty: bool }
+  const startReorder = (pastOrder) => {
+    if (!kitchenOpen || !menuAvailable) {
+      window.alert("The kitchen isn't taking orders right now — please try again when today's menu is up.");
+      return;
+    }
+    const meals = [], simple = [], unavailable = [];
+    for (const item of pastOrder.items || []) {
+      const id = String(item.id || "");
+      const qty = Math.max(1, Math.min(50, Number(item.qty) || 1));
+      const parts = id.split(":");
+      const label = String(item.name || "").split(" — ")[0] || "An item";
+      const planKey = parts[0] === "gold" ? "gold" : parts[0] === "goldmini" ? "goldMini"
+        : parts[0] === "plan-standard" ? "standard" : parts[0] === "mini" ? "mini" : null;
+      if (planKey) {
+        const en = planConfig?.enabled || {};
+        const on = planKey === "gold" ? (en.goldMedium !== false || en.goldLarge !== false) : en[planKey] !== false;
+        if (!plansAvailable || !on) { unavailable.push(label); continue; }
+        const preset = { dishText: String(item.name || "").split(" — ").slice(1).join(" ") };
+        if (planKey === "gold") { preset.goldSize = parts[1]; preset.bread = parts[2]; preset.sweetOrRaita = parts[4]; }
+        if (planKey === "goldMini") preset.sweetOrRaita = parts[2];
+        if (planKey === "mini") preset.miniBase = parts[2] === "rice" ? "rice" : "chapati";
+        if (planKey === "standard") preset.standardBase = parts[1] === "chapati" ? "chapati" : "rice";
+        meals.push({ plan: planKey, preset, qty });
+      } else if (extraItems.some(x => x.id === id) || menuItems.some(x => x.id === id)) {
+        simple.push({ id, qty });
+      } else {
+        unavailable.push(label);
+      }
+    }
+    setCart({});
+    setPlanCartMeta({});
+    setSpecialInstructions("");
+    setShowModal(false);
+    setShowExtrasPrompt(false);
+    setStep("order");
+    setReorder({ meals, simple, unavailable });
+  };
+  // Walks the reorder queue: one choice dialog per meal, then the simple items,
+  // then the unavailable notice (if any), then checkout.
+  useEffect(() => {
+    if (!reorder || step !== "order" || planChoiceModal) return;
+    if (reorder.meals.length) {
+      setPlanChoiceModal(reorder.meals[0].plan);
+      return;
+    }
+    if (reorder.simple.length) {
+      setCart(prev => {
+        const next = { ...prev };
+        reorder.simple.forEach(s => { next[s.id] = (next[s.id] || 0) + s.qty; });
+        return next;
+      });
+    }
+    const added = reorder.simple.length > 0 || Object.keys(cart).length > 0;
+    if (reorder.unavailable.length || !added) {
+      setReorderNotice({ unavailable: reorder.unavailable, empty: !added });
+    } else {
+      setShowModal(true);
+    }
+    setReorder(null);
+  }, [reorder, step, planChoiceModal]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reorderMeal = reorder && reorder.meals.length ? reorder.meals[0] : null;
+  const finishReorderMeal = () => setReorder(r => r ? { ...r, meals: r.meals.slice(1) } : r);
 
   const handleConfirmOrder = async (order) => {
     setShowModal(false);
@@ -2988,6 +3177,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     // per session): two orders count twice, a retry of the same one doesn't.
     // Which meals were ordered is read from the saved order on the server.
     trackEvent("order_placed", { orderId: order.id, props: { order_id: order.id, total: order.total } }, `order:${order.id}`);
+    if (account.signedIn) setTimeout(() => account.refresh(), 1500); // points / vouchers used
     setActiveOrder(order);
     setStep("track");
     setCart({});
@@ -3083,6 +3273,44 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   }, [cartVariants]);
   useEffect(() => { if (showModal) trackEvent("checkout_open"); }, [showModal]);
   useEffect(() => { if (showContact) trackEvent("contact_open"); }, [showContact]);
+
+  // ── MY HOMELY (customer account) ──
+  if (step === "homely") {
+    if (!account.ready) return null;
+    if (!account.signedIn) {
+      return <MyHomelyLogin supabase={supabase} onSignedIn={() => account.refresh()} onClose={() => setStep("home")} />;
+    }
+    const disableNotifications = async () => {
+      setNotifBusy(true);
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) await sub.unsubscribe();
+        setNotifStatus("default");
+      } catch (err) { setNotifError(err.message || "Couldn't turn off notifications"); }
+      setNotifBusy(false);
+    };
+    return (
+      <MyHomely
+        supabase={supabase}
+        account={account}
+        towers={TOWERS}
+        canOrder={!!(kitchenOpen && menuAvailable)}
+        onClose={() => setStep("home")}
+        onOrderAgain={startReorder}
+        onOpenPrefs={async () => {
+          const { data, error } = await supabase.rpc("my_pref_form_link");
+          if (!error && data?.ok && data.token) window.location.hash = `#/prefs/${data.token}`;
+          else window.alert(data?.error === "order_first" ? "Food preferences open up after your first order." : "Couldn't open your preferences right now.");
+        }}
+        notif={{
+          status: notifStatus, busy: notifBusy, error: notifError,
+          onEnable: () => handleEnableNotifications(account.phone),
+          onDisable: disableNotifications,
+        }}
+      />
+    );
+  }
 
   // ── TRACK VIEW ──
   if (step === "track" && activeOrder) {
@@ -3422,11 +3650,45 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
           {planChoiceModal && (
             <PlanChoiceModal
+              key={reorderMeal ? `reorder-${reorder.meals.length}` : planChoiceModal}
               plan={planChoiceModal}
               planConfig={planConfig}
-              onAdd={addPlanToCart}
-              onClose={() => setPlanChoiceModal(null)}
+              preset={reorderMeal?.preset || null}
+              qty={reorderMeal?.qty || 1}
+              onAdd={reorderMeal
+                ? (id, name, price) => { addPlanToCart(id, name, price, reorderMeal.qty); finishReorderMeal(); }
+                : addPlanToCart}
+              onClose={() => { setPlanChoiceModal(null); if (reorderMeal) finishReorderMeal(); }}
             />
+          )}
+
+          {reorderNotice && (
+            <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setReorderNotice(null); }}>
+              <div className="modal-sheet">
+                <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 6 }}>
+                  {reorderNotice.empty ? "Not available today" : "A few items aren't available today"}
+                </h2>
+                {reorderNotice.unavailable.length > 0 && (
+                  <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 14, color: C.inkMid, lineHeight: 1.7 }}>
+                    {reorderNotice.unavailable.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                )}
+                <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 18 }}>
+                  {reorderNotice.empty
+                    ? "Nothing from that order could be added. Have a look at today's menu instead."
+                    : "These weren't added to your cart. Everything else is in your cart at today's prices — you can add something else from the menu."}
+                </p>
+                {!reorderNotice.empty && (
+                  <button className="ht-btn btn-primary btn-full btn-lg" onClick={() => { setReorderNotice(null); setShowModal(true); }}>
+                    Continue to checkout · ₹{cartTotal}
+                  </button>
+                )}
+                <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={() => setReorderNotice(null)}>
+                  Browse today's menu
+                </button>
+              </div>
+            </div>
           )}
 
           {showExtrasPrompt && (
@@ -3492,6 +3754,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             promoCodes={promoCodes}
             referralConfig={referralConfig}
             customers={customers}
+            account={account.signedIn ? account : null}
             onConfirm={handleConfirmOrder}
             onClose={() => setShowModal(false)}
           />
@@ -3553,7 +3816,31 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       `}</style>
 
       {/* ═══════ SECTION 1 — HEADER (logo + wordmark) ═══════ */}
-      <div style={{ maxWidth: 420, margin: "0 auto", padding: "18px 14px 0" }}>
+      {/* My Homely — customer account (own row so it never overlaps the wordmark) */}
+      <div style={{ maxWidth: isDesktop ? 980 : 420, margin: "0 auto", padding: "10px 12px 0", display: "flex", justifyContent: "flex-end" }}>
+        <button
+          onClick={() => setStep("homely")}
+          aria-label="My Homely account"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: account.signedIn ? HC.orange : "#fff", color: account.signedIn ? "#fff" : HC.brown,
+            border: `1.5px solid ${account.signedIn ? HC.orange : HC.dash}`, borderRadius: 999,
+            padding: "6px 11px 6px 7px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 12.5, cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(59,42,26,.08)",
+          }}
+        >
+          <span style={{
+            width: 22, height: 22, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: account.signedIn ? "rgba(255,255,255,.25)" : HC.peach, fontSize: 12,
+          }}>
+            {account.signedIn && account.profile?.name ? account.profile.name.trim()[0].toUpperCase() : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={HC.brown} strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
+            )}
+          </span>
+          {account.signedIn ? "My Homely" : "Login"}
+        </button>
+      </div>
+      <div style={{ maxWidth: 420, margin: "0 auto", padding: "4px 14px 0" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <img
             src="/logo.png"
@@ -5209,6 +5496,9 @@ function OrderCard({ order, onAdvance, onReject, now }) {
             {hasInstructions && <span style={{ fontSize: 11, fontWeight: 700, color: "#0D47A1" }}>📝 NOTE</span>}
           </div>
           <div style={{ fontSize: 12, color: C.inkMid }}>{order.tower} · Flat {order.flat} · {order.phone}</div>
+          {order.deliveryInstructions && (
+            <div style={{ fontSize: 12, color: "#0D47A1", fontWeight: 600 }}>🚪 {order.deliveryInstructions}</div>
+          )}
           <div style={{ fontSize: 12, color: C.inkLight }}>
             {fmtTime(order.createdAt)} · #{order.id.slice(-6).toUpperCase()}
             {isActive && (
@@ -5231,6 +5521,15 @@ function OrderCard({ order, onAdvance, onReject, now }) {
               borderRadius: 4, padding: "2px 6px", display: "inline-block",
             }}>
               🏷 {order.promoCode ? `Promo: ${order.promoCode}` : `Referral: ${order.referralCode}`}
+            </div>
+          )}
+          {(order.pointsRedeemed > 0 || order.voucherId) && (
+            <div style={{
+              marginTop: 2, fontSize: 10, fontWeight: 700, color: "#6A1B9A",
+              background: "#F3E5F5", border: "1px solid #E1BEE7",
+              borderRadius: 4, padding: "2px 6px", display: "block",
+            }}>
+              🎁 {[order.voucherId && `Free meal −₹${order.voucherDiscount || 0}`, order.pointsRedeemed > 0 && `${order.pointsRedeemed} pts −₹${order.pointsDiscount || 0}`].filter(Boolean).join(" · ")}
             </div>
           )}
         </div>
@@ -7606,7 +7905,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
   // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
   // and is dropped the moment the owner switches to any other tab.
   const [unlockedTab, setUnlockedTab] = useState(null);
-  const PROTECTED_TABS = ["credit", "analytics", "customers"];
+  const PROTECTED_TABS = ["credit", "analytics", "customers", "loyalty"];
   const setTab = (id) => {
     if (id !== tab) { setUnlockedTab(null); setTabRaw(id); }
   };
@@ -7643,6 +7942,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
     { id: "feedback", label: "🗳️ Feedback" },
     { id: "contact",  label: "📞 Contact" + (unreadContactCount > 0 ? ` (${unreadContactCount})` : "") },
     { id: "promo",    label: "🎟️ Promo" },
+    { id: "loyalty",  label: "🎁 Loyalty" },
     { id: "notify",   label: "🔔 Notify" },
   ];
   return (
@@ -7753,6 +8053,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
         {tab === "credit"    && sensitiveUnlocked && <CreditLedger credit={credit} todayOrders={todayOrders} ordersHistory={ordersHistory} onAddCredit={onAddCredit} onDeleteEntry={onDeleteCreditEntry} onResetCustomer={onResetCreditCustomer} onDeleteCustomer={onDeleteCreditCustomer} onReconcile={onReconcileCredit} />}
         {tab === "analytics" && sensitiveUnlocked && <AnalyticsPanel todayOrders={todayOrders} ordersHistory={ordersHistory} customers={customers} onResetAllData={onResetAllData} onOpenCustomer={(id) => { setOpenCustomerId(id); setTab("customers"); }} />}
         {tab === "customers" && sensitiveUnlocked && <CustomersSection supabase={supabase} C={C} openCustomerId={openCustomerId} onOpened={() => setOpenCustomerId(null)} />}
+        {tab === "loyalty"   && sensitiveUnlocked && <LoyaltyCenter supabase={supabase} C={C} />}
         {tab === "feedback"  && <FeedbackPanel poll={poll} pollResponses={pollResponses} onSavePoll={onSavePoll} onTogglePoll={onTogglePoll} onClearResponses={onClearPollResponses} />}
         {tab === "promo"     && <PromoCenter promoCodes={promoCodes} referralConfig={referralConfig} onSavePromoCodes={onSavePromoCodes} onSaveReferralConfig={onSaveReferralConfig} todayOrders={todayOrders} ordersHistory={ordersHistory} />}
         {tab === "notify"    && <NotifyCenter />}
