@@ -165,7 +165,10 @@ function phoneMatchesReferralCode(phone, code) {
 //   - Promo code (case-insensitive) wins if it matches an active entry
 //   - Referral: cannot self-refer; new customer must NOT have ordered before
 //   - Min-order enforced if the code / config specifies it
-function resolvePromoOrReferral({ codeText, promoCodes = [], referralConfig, customers = [], phone, cartTotal }) {
+// `referralCheck` is the server's answer from check_referral_code for this
+// code + phone. Visitors can't read the customers list (RLS), so for them the
+// referrer is only known through that check.
+function resolvePromoOrReferral({ codeText, promoCodes = [], referralConfig, customers = [], phone, cartTotal, referralCheck = null }) {
   const raw = (codeText || "").trim();
   if (!raw) return { ok: true, discount: 0, kind: "none" };
   const upper = raw.toUpperCase();
@@ -193,8 +196,14 @@ function resolvePromoOrReferral({ codeText, promoCodes = [], referralConfig, cus
   const rc = referralConfig && referralConfig.enabled !== false ? referralConfig : null;
   if (rc && /^HT\d{8}$/i.test(upper)) {
     // Find referrer by matching last-8 of phone
-    const referrer = (customers || []).find(c => getReferralCode(c.phone) === upper && (c.totalOrders || 0) >= 1);
-    if (!referrer) return { ok: false, error: "Referral code not recognised" };
+    let referrer = (customers || []).find(c => getReferralCode(c.phone) === upper && (c.totalOrders || 0) >= 1);
+    if (!referrer) {
+      const checked = referralCheck && referralCheck.code === upper && referralCheck.phone === phone ? referralCheck : null;
+      if (!checked || checked.pending) return { ok: false, pending: true, error: "Checking code…" };
+      if (!checked.ok) return { ok: false, error: checked.error || "Referral code not recognised" };
+      // place_order looks the referrer up itself and stores it on the order.
+      referrer = { phone: null, name: checked.referrerName || "a friend" };
+    }
     // Prevent self-referral
     if (phone && phoneMatchesReferralCode(phone, upper)) {
       return { ok: false, error: "You can't use your own referral code" };
@@ -1258,6 +1267,24 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
   const usableVouchers = (loyalty?.vouchers || []).filter(v => v.status === "available" && cartVariants.has(v.variant));
   const [voucherId, setVoucherId] = useState("");
   const [usePoints, setUsePoints] = useState(false);
+  // Referral codes are checked on the server (debounced) — see check_referral_code.
+  const [referralCheck, setReferralCheck] = useState(null);
+  useEffect(() => {
+    const code = promoText.trim().toUpperCase();
+    const phone = form.phone.trim();
+    if (!/^HT\d{8}$/.test(code) || (referralConfig && referralConfig.enabled === false)) { setReferralCheck(null); return; }
+    if ((customers || []).some(c => getReferralCode(c.phone) === code)) { setReferralCheck(null); return; }
+    let alive = true;
+    setReferralCheck({ code, phone, pending: true });
+    const t = setTimeout(async () => {
+      const { data, error } = await supabase.rpc("check_referral_code", { p_code: code, p_phone: phone });
+      if (!alive) return;
+      setReferralCheck(error
+        ? { code, phone, ok: false, error: "Couldn't check the code — please try again" }
+        : { code, phone, ...(data || { ok: false }) });
+    }, 400);
+    return () => { alive = false; clearTimeout(t); };
+  }, [promoText, form.phone, referralConfig?.enabled, customers.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live-resolved promo/referral result; recomputed whenever inputs change.
   // ok:true + discount==0 (no code entered) is the neutral state.
   const promoResult = resolvePromoOrReferral({
@@ -1267,6 +1294,7 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
     customers,
     phone: form.phone.trim(),
     cartTotal,
+    referralCheck,
   });
   const codeDiscount = promoResult.ok ? promoResult.discount : 0;
   // Free meal: one unit of that meal at today's price.
@@ -1476,7 +1504,7 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
             </p>
           )}
           {promoText.trim() && !promoResult.ok && (
-            <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{promoResult.error || "Invalid code"}</p>
+            <p style={{ fontSize: 11, color: promoResult.pending ? C.inkLight : C.red, marginTop: 3 }}>{promoResult.error || "Invalid code"}</p>
           )}
           {errors.promo && !promoText.trim() && (
             <p style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{errors.promo}</p>
@@ -7098,7 +7126,8 @@ function FeedbackPanel({ poll, pollResponses = [], onSavePoll, onTogglePoll, onC
   { phone, name, tower, flat,
     entries: [{ id, date, type:"debit"|"credit", amount, note, orderDetails? }] }
   Balance = Σdebits − Σcredits  (positive = customer owes you)
-  Zero-balance customers are auto-cleared on daily rollover (like orders).
+  Zero-balance (settled) customers are kept, and hidden from the list unless
+  "Show settled" is on or you search for them.
 */
 
 // ── Credit export helpers ──
@@ -7150,6 +7179,7 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
   const [payAmt, setPayAmt]           = useState("");
   const [payNote, setPayNote]         = useState("");
   const [search, setSearch]           = useState("");
+  const [showSettled, setShowSettled] = useState(false);
 
   // Manual debit modal
   const [showDebitModal, setShowDebitModal] = useState(false);
@@ -7188,9 +7218,10 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
     const bal = getBalance(c.entries); return bal > 0 ? s + bal : s;
   }, 0);
 
+  const settledCount = credit.filter(c => c.entries.length > 0 && getBalance(c.entries) === 0).length;
   const sorted = [...credit]
     .filter(c => {
-      if (!search) return true;
+      if (!search) return showSettled || getBalance(c.entries) !== 0;
       return c.name.toLowerCase().includes(search.toLowerCase()) ||
              c.phone.includes(search) ||
              c.tower.toLowerCase().includes(search.toLowerCase());
@@ -7648,13 +7679,21 @@ function CreditLedger({ credit, todayOrders = [], ordersHistory = [], onAddCredi
         placeholder="🔍 Search by name, phone or tower…"
         value={search}
         onChange={e => setSearch(e.target.value)}
-        style={{ marginBottom: 14 }}
+        style={{ marginBottom: settledCount > 0 ? 8 : 14 }}
       />
+      {settledCount > 0 && !search && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.inkMid, marginBottom: 14, cursor: "pointer" }}>
+          <input type="checkbox" checked={showSettled} onChange={e => setShowSettled(e.target.checked)} style={{ accentColor: C.saffron }} />
+          Show settled customers ({settledCount})
+        </label>
+      )}
 
       {sorted.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 0", color: C.inkMid }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>📒</div>
-          <p style={{ fontSize: 13 }}>No credit records yet.<br />Auto-created when an order is delivered.</p>
+          {settledCount > 0 && !search
+            ? <p style={{ fontSize: 13 }}>Everyone is settled 🎉</p>
+            : <p style={{ fontSize: 13 }}>No credit records yet.<br />Auto-created when an order is delivered.</p>}
         </div>
       ) : (
         sorted.map(c => {
@@ -8360,17 +8399,11 @@ export default function App() {
 
       // Only the owner's session can write app_data / credit_ledger, so only it
       // runs the daily rollover (a customer device would just hit RLS errors).
+      // Settled (zero-balance) ledgers are no longer deleted here: customers see
+      // their full history in My Homely, and the owner Credit tab hides
+      // settled customers from its list instead.
       if (lastDate !== today && await getOwnerSession()) {
-        // Day has changed. Drop settled (zero-balance) credit customers.
-        const storedCredit = cred || [];
-        const getBalance = (entries) => entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0);
-        const rolledCredit = storedCredit.filter(c => getBalance(c.entries) !== 0);
-        setCredit(rolledCredit);
-        const droppedPhones = storedCredit.map(c => c.phone).filter(p => !rolledCredit.some(c => c.phone === p));
-        await Promise.all([
-          ...droppedPhones.map(p => deleteCreditForPhone(p)),
-          save(KEYS.lastDate, today),
-        ]);
+        await save(KEYS.lastDate, today);
       }
 
       setLoaded(true);
