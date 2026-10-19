@@ -86,7 +86,8 @@ export async function POST(request) {
     const authHeader = request.headers.get("authorization") || "";
     const token = authHeader.replace(/^Bearer\s+/i, "");
     const { data: userData, error: authErr } = await authClient.auth.getUser(token);
-    if (authErr || !userData?.user) {
+    // Customers can sign in too now — only the staff role may broadcast.
+    if (authErr || userData?.user?.app_metadata?.role !== "staff") {
       return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
   }

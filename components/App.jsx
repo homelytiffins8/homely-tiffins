@@ -102,10 +102,18 @@ const KEYS = {
 // and auto-refreshes it, so we just ask it for the current session
 // instead of maintaining our own expiry logic.
 // ─────────────────────────────────────────────
+// Customers sign in through the same Supabase Auth client (phone + password),
+// so "has a session" no longer means "is the owner". Staff is the role
+// claim set server-side in app_metadata — the database's is_staff() checks
+// the same claim, so the UI and RLS always agree.
+function isStaffSession(session) {
+  return session?.user?.app_metadata?.role === "staff";
+}
+
 async function getOwnerSession() {
   try {
     const { data } = await supabase.auth.getSession();
-    return !!data?.session;
+    return isStaffSession(data?.session);
   } catch {
     return false;
   }
@@ -113,7 +121,10 @@ async function getOwnerSession() {
 
 async function clearOwnerSession() {
   try {
-    await supabase.auth.signOut();
+    // Only ever sign out a staff session — leaving the owner route must not
+    // log a customer out of My Homely.
+    const { data } = await supabase.auth.getSession();
+    if (isStaffSession(data?.session)) await supabase.auth.signOut();
   } catch {}
 }
 
@@ -7767,13 +7778,17 @@ function OwnerLogin({ onSuccess }) {
   const handleLogin = async () => {
     setChecking(true);
     setError("");
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email: username.trim(),
       password,
     });
     setChecking(false);
-    if (!authError) {
+    if (!authError && isStaffSession(data?.session)) {
       onSuccess();
+    } else if (!authError) {
+      // Valid login, but not an owner/staff account (e.g. a customer).
+      await supabase.auth.signOut();
+      setError("This account doesn't have owner access.");
     } else {
       setError("Incorrect email or password.");
       setShaking(true);
@@ -7942,7 +7957,7 @@ export default function App() {
       setOwnerAuthChecked(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setOwnerAuthed(!!session);
+      setOwnerAuthed(isStaffSession(session));
     });
     return () => listener?.subscription?.unsubscribe();
   }, []);
@@ -8040,7 +8055,9 @@ export default function App() {
       setTodayOrders(td || []);
       setOrdersHistory(hist || []);
 
-      if (lastDate !== today) {
+      // Only the owner's session can write app_data / credit_ledger, so only it
+      // runs the daily rollover (a customer device would just hit RLS errors).
+      if (lastDate !== today && await getOwnerSession()) {
         // Day has changed. Drop settled (zero-balance) credit customers.
         const storedCredit = cred || [];
         const getBalance = (entries) => entries.reduce((s, e) => e.type === "debit" ? s + e.amount : s - e.amount, 0);
