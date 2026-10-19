@@ -385,10 +385,10 @@ export function MyHomely({ supabase, account, towers = [], canOrder, onClose, on
 
   const rows = [
     ["profile", "👤", "Profile", needsAddress ? "Add your delivery details" : [p.tower, p.flat && `Flat ${p.flat}`].filter(Boolean).join(" · ")],
-    ["orders", "🧾", "My Orders", p.totalOrders ? `${p.totalOrders} order${p.totalOrders === 1 ? "" : "s"}` : "No orders yet"],
-    ["favourites", "❤️", "My Favourites", fav?.usualMeal ? `Usually ${fav.usualMeal.label}` : "Builds up as you order"],
+    ["orders", "🧾", "My Orders", !account.profile ? "…" : p.totalOrders ? `${p.totalOrders} order${p.totalOrders === 1 ? "" : "s"}` : "No orders yet"],
+    ["favourites", "❤️", "My Favourites", !fav ? "…" : fav.usualMeal ? `Usually ${fav.usualMeal.label}` : "Builds up as you order"],
     ["rewards", "🎁", "Rewards", loy?.enabled ? `${loy.balance} Homely Points${vouchers.length ? ` · ${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""}` : ""}` : `Referral code ${p.referralCode || ""}`],
-    ["ledger", "📒", "Credit Ledger", ledger ? (due > 0 ? `${fmtINR(due)} due` : due < 0 ? `${fmtINR(-due)} advance` : "All settled") : ""],
+    ["ledger", "📒", "Credit Ledger", ledger ? (due > 0 ? `${fmtINR(due)} due` : due < 0 ? `${fmtINR(-due)} advance` : "All settled") : "…"],
   ];
 
   return (

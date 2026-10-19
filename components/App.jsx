@@ -3658,7 +3658,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               onAdd={reorderMeal
                 ? (id, name, price) => { addPlanToCart(id, name, price, reorderMeal.qty); finishReorderMeal(); }
                 : addPlanToCart}
-              onClose={() => { setPlanChoiceModal(null); if (reorderMeal) finishReorderMeal(); }}
+              // Cancelling during Order Again stops it there: the customer is left
+              // on today's menu with whatever was already added (no "not available" notice).
+              onClose={() => { setPlanChoiceModal(null); if (reorderMeal) setReorder(null); }}
             />
           )}
 
