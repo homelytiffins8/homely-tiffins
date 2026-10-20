@@ -3912,7 +3912,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       }}>
         {/* Background tiffin illustration — mobile only */}
         {!isDesktop && (
-          <div style={{ position: "absolute", bottom: 44, right: -44, width: 270, zIndex: 0, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", bottom: 119, right: -44, width: 270, zIndex: 0, pointerEvents: "none" }}>
             <HeroTiffinArt />
           </div>
         )}
