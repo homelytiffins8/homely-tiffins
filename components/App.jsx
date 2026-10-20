@@ -1304,15 +1304,29 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
         .map(id => menuItems.find(i => i.id === id)?.price || 0))
     : 0;
   const voucherDiscount = Math.min(voucherUnitPrice, Math.max(0, cartTotal - codeDiscount));
-  // Points: capped by balance and by maxRedeemPct of what's left to pay.
+  // Points: capped by balance, and by maxRedeemPct of what's left to pay —
+  // or, in "sides" mode, by the Sweet / Raita of the day in the cart.
   const pointValue = Number(loyalty?.pointValue) || 0;
   const pointsBalance = Number(loyalty?.balance) || 0;
-  const canUsePoints = !!(loyalty?.enabled && pointValue > 0 && pointsBalance > 0 && pointsBalance >= (loyalty.minRedeem || 0));
+  const minRedeem = Number(loyalty?.minRedeem) || 0;
+  const pointsOnSides = loyalty?.redeemOn === "sides";
+  const sidesTotal = Object.entries(cart)
+    .filter(([id]) => id === "extra-raita" || id === "extra-sweet")
+    .reduce((s, [id, qty]) => s + (menuItems.find(i => i.id === id)?.price || 0) * qty, 0);
+  const hasPoints = !!(loyalty?.enabled && pointValue > 0 && pointsBalance > 0 && pointsBalance >= minRedeem);
   const payableBeforePoints = Math.max(0, cartTotal - codeDiscount - voucherDiscount);
-  const pointsDiscount = usePoints && canUsePoints
-    ? Math.max(0, Math.min(Math.floor(pointsBalance * pointValue), Math.floor(payableBeforePoints * Math.min(100, Math.max(0, loyalty.maxRedeemPct ?? 100)) / 100)))
-    : 0;
-  const pointsToUse = pointsDiscount > 0 ? Math.ceil(pointsDiscount / pointValue) : 0;
+  const pointsCap = pointsOnSides
+    ? Math.floor(Math.min(sidesTotal, payableBeforePoints))
+    : Math.floor(payableBeforePoints * Math.min(100, Math.max(0, loyalty?.maxRedeemPct ?? 100)) / 100);
+  const maxPointsDiscount = hasPoints ? Math.max(0, Math.min(Math.floor(pointsBalance * pointValue), pointsCap)) : 0;
+  const maxPointsToUse = maxPointsDiscount > 0 ? Math.ceil(maxPointsDiscount / pointValue) : 0;
+  // The server refuses fewer than minRedeem points, so hide the option then.
+  const canUsePoints = maxPointsToUse > 0 && maxPointsToUse >= minRedeem;
+  const pointsDiscount = usePoints && canUsePoints ? maxPointsDiscount : 0;
+  const pointsToUse = pointsDiscount > 0 ? maxPointsToUse : 0;
+  const pointsHint = !hasPoints || canUsePoints ? ""
+    : pointsOnSides && sidesTotal <= 0 ? `Add a Sweet or Raita to pay for it with your ${pointsBalance} Homely Points.`
+    : `Homely Points can be used from ${minRedeem} points — this order can take only ${maxPointsToUse}.`;
   const discount = codeDiscount + voucherDiscount + pointsDiscount;
   const finalTotal = Math.max(0, cartTotal - discount);
 
@@ -1463,7 +1477,7 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
         </div>
 
         {/* My Homely rewards */}
-        {account && (usableVouchers.length > 0 || canUsePoints) && (
+        {account && (usableVouchers.length > 0 || canUsePoints || pointsHint) && (
           <div style={{ marginTop: 14, padding: "12px 14px", background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", marginBottom: 6 }}>🎁 Your rewards</div>
             {usableVouchers.map(v => (
@@ -1480,9 +1494,13 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
                 {usePoints && <span style={{ fontWeight: 700, color: "#2E7D32" }}>{pointsToUse} pts · −₹{pointsDiscount}</span>}
               </label>
             )}
-            {canUsePoints && loyalty.maxRedeemPct < 100 && (
+            {canUsePoints && pointsOnSides && (
+              <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>Points pay for the Sweet / Raita in your cart.</div>
+            )}
+            {canUsePoints && !pointsOnSides && loyalty.maxRedeemPct < 100 && (
               <div style={{ fontSize: 11, color: C.inkLight, marginTop: 2 }}>Points can pay up to {loyalty.maxRedeemPct}% of an order.</div>
             )}
+            {pointsHint && <div style={{ fontSize: 12, color: C.inkMid, padding: "4px 0" }}>{pointsHint}</div>}
           </div>
         )}
 

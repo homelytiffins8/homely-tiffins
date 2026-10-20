@@ -31,6 +31,7 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
   const [cfg, setCfg] = useState(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [openPhone, setOpenPhone] = useState(null);
   const [search, setSearch] = useState("");
@@ -69,6 +70,18 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
     setSaving(false);
   };
 
+  // The switch takes effect at once; other unsaved edits stay in the form.
+  const toggleEnabled = async (next) => {
+    setToggling(true); setError("");
+    try {
+      const saved = await callRpc(supabase, "staff_loyalty_set_enabled", { p_enabled: next });
+      setCfg(c => ({ ...c, enabled: !!saved.enabled, startedAt: saved.startedAt }));
+      setData(d => ({ ...d, config: { ...(d.config || {}), enabled: !!saved.enabled, startedAt: saved.startedAt } }));
+    } catch (e) { setError(errMsg(e)); }
+    setToggling(false);
+  };
+
+  const sidesOnly = (cfg.redeemOn || "any") === "sides";
   const t = data.totals || {};
   const customers = (data.customers || []).filter(c => {
     const q = search.trim().toLowerCase();
@@ -109,11 +122,13 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
               {cfg.startedAt ? `Running since ${fmtTs(cfg.startedAt)} — only orders placed after this earn.` : "Orders placed after you first switch this on will earn."}
             </div>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 13, color: cfg.enabled ? C.green : C.inkMid, cursor: "pointer" }}>
-            <input type="checkbox" checked={!!cfg.enabled} onChange={e => setCfg(c => ({ ...c, enabled: e.target.checked }))} style={{ width: 18, height: 18, accentColor: C.saffron }} />
-            {cfg.enabled ? "On" : "Off"}
-          </label>
+          <ToggleSwitch C={C} on={!!cfg.enabled} busy={toggling} onChange={toggleEnabled} />
         </div>
+        {!cfg.enabled && (
+          <div style={{ background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 12, color: C.inkMid, marginBottom: 12 }}>
+            Switched off — no points are earned or used, and customers don't see Homely Points. Balances are kept for when you switch it back on.
+          </div>
+        )}
 
         <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, margin: "6px 0 8px" }}>1. Points on every order</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -136,12 +151,33 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
             <div style={{ paddingBottom: 9, color: C.inkMid, fontSize: 13 }}>paid</div>
           </div>
         )}
+        <div style={{ maxWidth: 260, marginBottom: 4 }}>
+          <label style={label}>Minimum order value (₹)</label>
+          <input style={input} type="number" min="0" placeholder="0 = every order" value={num(cfg.minOrder)} onChange={e => setCfg(c => ({ ...c, minOrder: e.target.value }))} />
+        </div>
+        <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 10 }}>
+          {Number(cfg.minOrder) > 0
+            ? `Orders under ${fmtINR(cfg.minOrder)} (before discounts) earn no points and don't count toward milestones.`
+            : "Every delivered order earns and counts toward milestones."}
+        </div>
 
         <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, margin: "14px 0 8px" }}>2. Using points at checkout</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          {[["any", "On the whole order"], ["sides", "Only on sides (Sweet & Raita)"]].map(([k, l]) => {
+            const on = (cfg.redeemOn || "any") === k;
+            return <button key={k} className="ht-btn btn-sm" onClick={() => setCfg(c => ({ ...c, redeemOn: k }))}
+              style={{ background: on ? C.saffron : C.white, color: on ? C.white : C.ink, border: `1px solid ${on ? C.saffron : C.border}` }}>{l}</button>;
+          })}
+        </div>
+        <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 8 }}>
+          {sidesOnly
+            ? "Customers can pay for the Sweet / Raita of the day in their cart with points — up to their full price. Meals are always paid in money."
+            : "Points come off the order total, up to the max % below."}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 6 }}>
           <div><label style={label}>1 point = ₹</label><input style={input} type="number" min="0.01" step="0.01" value={num(cfg.pointValue)} onChange={e => setCfg(c => ({ ...c, pointValue: e.target.value }))} /></div>
           <div><label style={label}>Minimum points to use</label><input style={input} type="number" min="0" value={num(cfg.minRedeem)} onChange={e => setCfg(c => ({ ...c, minRedeem: e.target.value }))} /></div>
-          <div><label style={label}>Max % of an order</label><input style={input} type="number" min="0" max="100" value={num(cfg.maxRedeemPct)} onChange={e => setCfg(c => ({ ...c, maxRedeemPct: e.target.value }))} /></div>
+          {!sidesOnly && <div><label style={label}>Max % of an order</label><input style={input} type="number" min="0" max="100" value={num(cfg.maxRedeemPct)} onChange={e => setCfg(c => ({ ...c, maxRedeemPct: e.target.value }))} /></div>}
         </div>
 
         <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, margin: "14px 0 4px" }}>3. Milestone rewards</div>
@@ -209,6 +245,18 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function ToggleSwitch({ C, on, busy, onChange }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} disabled={busy} onClick={() => onChange(!on)}
+      style={{ display: "flex", alignItems: "center", gap: 8, border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+      <span style={{ fontWeight: 800, fontSize: 13, color: on ? C.green : C.inkMid, minWidth: 24, textAlign: "right" }}>{busy ? "…" : on ? "On" : "Off"}</span>
+      <span style={{ position: "relative", width: 46, height: 26, borderRadius: 13, background: on ? C.green : C.border, transition: "background .2s", opacity: busy ? 0.6 : 1 }}>
+        <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: C.white, boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left .2s" }} />
+      </span>
+    </button>
   );
 }
 

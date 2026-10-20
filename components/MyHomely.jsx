@@ -765,7 +765,10 @@ function RewardsView({ rewards, onBack }) {
           </div>
           <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.55 }}>
             {earnText && <>You earn {earnText}. </>}
-            Use them at checkout{loy.minRedeem ? ` (from ${loy.minRedeem} points)` : ""}{loy.maxRedeemPct < 100 ? `, up to ${loy.maxRedeemPct}% of an order` : ""}.
+            {loy.minOrder > 0 && <>Orders of {fmtINR(loy.minOrder)} or more count for rewards. </>}
+            {loy.redeemOn === "sides"
+              ? <>Use them at checkout to pay for your Sweet or Raita of the day{loy.minRedeem ? ` (from ${loy.minRedeem} points)` : ""}.</>
+              : <>Use them at checkout{loy.minRedeem ? ` (from ${loy.minRedeem} points)` : ""}{loy.maxRedeemPct < 100 ? `, up to ${loy.maxRedeemPct}% of an order` : ""}.</>}
           </div>
           {nextMs && (
             <div style={{ marginTop: 12, background: HC.peach, borderRadius: 10, padding: "10px 12px", fontSize: 13 }}>
