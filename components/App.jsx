@@ -1315,11 +1315,13 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
     .reduce((s, [id, qty]) => s + (menuItems.find(i => i.id === id)?.price || 0) * qty, 0);
   const hasPoints = !!(loyalty?.enabled && pointValue > 0 && pointsBalance > 0 && pointsBalance >= minRedeem);
   const payableBeforePoints = Math.max(0, cartTotal - codeDiscount - voucherDiscount);
+  // Sides mode: only the sides' share of what's left after a promo code.
   const pointsCap = pointsOnSides
-    ? Math.floor(Math.min(sidesTotal, payableBeforePoints))
-    : Math.floor(payableBeforePoints * Math.min(100, Math.max(0, loyalty?.maxRedeemPct ?? 100)) / 100);
-  const maxPointsDiscount = hasPoints ? Math.max(0, Math.min(Math.floor(pointsBalance * pointValue), pointsCap)) : 0;
-  const maxPointsToUse = maxPointsDiscount > 0 ? Math.ceil(maxPointsDiscount / pointValue) : 0;
+    ? Math.floor(Math.min(cartTotal > 0 ? sidesTotal * (cartTotal - codeDiscount) / cartTotal : 0, payableBeforePoints) + 1e-9)
+    : Math.floor(payableBeforePoints * Math.min(100, Math.max(0, loyalty?.maxRedeemPct ?? 100)) / 100 + 1e-9);
+  // 1e-9: e.g. 21 / 0.7 is 30.000000000000004 in JS, which would ceil to 31.
+  const maxPointsDiscount = hasPoints ? Math.max(0, Math.min(Math.floor(pointsBalance * pointValue + 1e-9), pointsCap)) : 0;
+  const maxPointsToUse = maxPointsDiscount > 0 ? Math.min(pointsBalance, Math.ceil(maxPointsDiscount / pointValue - 1e-9)) : 0;
   // The server refuses fewer than minRedeem points, so hide the option then.
   const canUsePoints = maxPointsToUse > 0 && maxPointsToUse >= minRedeem;
   const pointsDiscount = usePoints && canUsePoints ? maxPointsDiscount : 0;
@@ -3244,7 +3246,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     // Which meals were ordered is read from the saved order on the server.
     trackEvent("order_placed", { orderId: order.id, props: { order_id: order.id, total: order.total } }, `order:${order.id}`);
     if (account.signedIn) setTimeout(() => account.refresh(), 1500); // points / vouchers used
-    setActiveOrder(order);
+    setActiveOrder((res && res.order) || order);
     setStep("track");
     setCart({});
     setPlanCartMeta({});
@@ -8857,7 +8859,7 @@ export default function App() {
     let failure = null;
     let failureDetail = "";
     try {
-      const { error } = await supabase.rpc("place_order", { p_order: order });
+      const { data: placed, error } = await supabase.rpc("place_order", { p_order: order });
       if (error) {
         console.error("[place_order RPC] failed:", error);
         const m = error.message || "";
@@ -8868,6 +8870,11 @@ export default function App() {
       } else {
         const { data: row, error: fetchErr } = await supabase.from("orders").select("*").eq("id", order.id).maybeSingle();
         if (!fetchErr && row) authoritativeOrder = rowToOrder(row);
+        // Customers can't read the orders table, so fall back to the amounts
+        // place_order charged (points / promo may differ from the estimate).
+        else if (placed && placed.total !== undefined) {
+          authoritativeOrder = { ...order, total: Number(placed.total), discount: Number(placed.discount) || 0, originalTotal: Number(placed.originalTotal) || order.originalTotal };
+        }
       }
     } catch (err) {
       console.error("[place_order RPC] threw:", err);
@@ -8901,7 +8908,7 @@ export default function App() {
       // customers table write already happened inside the place_order RPC above
       return next;
     });
-    return { ok: true };
+    return { ok: true, order: finalOrder };
   }, [todayOrders, catchUpSync]);
 
   const handleAdvanceOrder = useCallback(async (orderId, nextStatus) => {

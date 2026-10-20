@@ -171,7 +171,7 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
         </div>
         <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 8 }}>
           {sidesOnly
-            ? "Customers can pay for the Sweet / Raita of the day in their cart with points — up to their full price. Meals are always paid in money."
+            ? "Customers can pay for the Sweet / Raita of the day in their cart with points — up to what they cost after any promo code. Meals are always paid in money."
             : "Points come off the order total, up to the max % below."}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 6 }}>
