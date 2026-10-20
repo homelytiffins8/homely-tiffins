@@ -2648,6 +2648,26 @@ const CartIcon = ({ s = 22, c = "#fff" }) => (
     <path d="M1 1h3l2.2 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L21 6H5.5" />
   </svg>
 );
+const ForkKnifeIcon = ({ s = 18, c = "#fff" }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10" /><path d="M17 21V3c-2.2 1.2-3.5 3.6-3.5 7v3H17" />
+  </svg>
+);
+const ChatIcon = ({ s = 18, c = HC.brown }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3.5c-4.7 0-8.5 3.4-8.5 7.7 0 1.9.8 3.7 2.1 5L5 20.5l4.3-1.6c.9.3 1.8.4 2.7.4 4.7 0 8.5-3.4 8.5-7.7S16.7 3.5 12 3.5z" />
+  </svg>
+);
+const ArrowRightIcon = ({ s = 16, c = "#fff" }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+const UserIcon = ({ s = 20, c = HC.brown }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+    <circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+  </svg>
+);
 const SearchIcon = ({ s = 22, c = HC.orange }) => (
   <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
@@ -3846,31 +3866,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       `}</style>
 
       {/* ═══════ SECTION 1 — HEADER (logo + wordmark) ═══════ */}
-      {/* My Homely — customer account (own row so it never overlaps the wordmark) */}
-      <div style={{ maxWidth: isDesktop ? 980 : 420, margin: "0 auto", padding: "10px 12px 0", display: "flex", justifyContent: "flex-end" }}>
-        <button
-          onClick={() => setStep("homely")}
-          aria-label="My Homely account"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: account.signedIn ? HC.orange : "#fff", color: account.signedIn ? "#fff" : HC.brown,
-            border: `1.5px solid ${account.signedIn ? HC.orange : HC.dash}`, borderRadius: 999,
-            padding: "6px 11px 6px 7px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 12.5, cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(59,42,26,.08)",
-          }}
-        >
-          <span style={{
-            width: 22, height: 22, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
-            background: account.signedIn ? "rgba(255,255,255,.25)" : HC.peach, fontSize: 12,
-          }}>
-            {account.signedIn && account.profile?.name ? account.profile.name.trim()[0].toUpperCase() : (
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={HC.brown} strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
-            )}
-          </span>
-          {account.signedIn ? "My Homely" : "Login"}
-        </button>
-      </div>
-      <div style={{ maxWidth: 420, margin: "0 auto", padding: "4px 14px 0" }}>
+      <div style={{ maxWidth: 420, margin: "0 auto", padding: "14px 14px 0" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <img
             src="/logo.png"
@@ -3978,35 +3974,85 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{ fontSize: 11.5, color: HC.brownMid, fontWeight: 600 }}>500+ Happy Customers</div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
             <button className={(kitchenOpen && menuAvailable) ? "h5-order-beat" : undefined} onClick={() => { if (unratedOrder) { setShowRatingModal(true); } else { setStep("order"); } }} disabled={!kitchenOpen || !menuAvailable} style={{
+              flex: "1.15 1 0", minWidth: 0,
               background: HC.orange,
               color: "#fff",
               border: `1.5px solid ${HC.orange}`,
-              padding: isDesktop ? "14px 32px" : "10px 22px",
+              padding: isDesktop ? "14px 18px" : "11px 10px",
               borderRadius: 12,
               fontFamily: "'Nunito', sans-serif", fontWeight: 800,
               fontSize: isDesktop ? 17 : 15,
-              display: "inline-flex", alignItems: "center", gap: 8,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap",
               cursor: (kitchenOpen && menuAvailable) ? "pointer" : "not-allowed",
               opacity: (kitchenOpen && menuAvailable) ? 1 : 0.5,
             }}>
-              <CartIcon s={16} c="#fff" /> Order Now
+              <ForkKnifeIcon s={isDesktop ? 19 : 17} /> Order Now <ArrowRightIcon s={isDesktop ? 17 : 15} />
             </button>
             <button onClick={() => setShowContact(true)} style={{
-              background: "transparent",
-              color: HC.brownDark,
-              border: `1.5px solid ${HC.brownDark}`,
-              padding: isDesktop ? "14px 22px" : "10px 18px",
-              borderRadius: 10,
+              flex: "1 1 0", minWidth: 0,
+              background: HC.card,
+              color: HC.brown,
+              border: `1.5px solid ${HC.orange}`,
+              padding: isDesktop ? "14px 16px" : "11px 10px",
+              borderRadius: 12,
               fontFamily: "'Nunito', sans-serif", fontWeight: 800,
-              fontSize: isDesktop ? 15 : 14,
-              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: isDesktop ? 16 : 14,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap",
               cursor: "pointer",
             }}>
-              📞 Contact Us
+              <ChatIcon s={isDesktop ? 18 : 17} /> Contact Us
             </button>
           </div>
+
+          {/* My Homely — customer account card (login / profile entry point) */}
+          {(() => {
+            const signedIn = account.signedIn;
+            const firstName = (account.profile?.name || "").trim().split(/\s+/)[0];
+            const loy = account.rewards?.loyalty;
+            const freeMeals = (loy?.vouchers || []).filter(v => v.status === "available").length;
+            const subtitle = signedIn && loy?.enabled
+              ? `${loy.balance} Homely Points${freeMeals ? ` · ${freeMeals} free meal${freeMeals > 1 ? "s" : ""}` : ""}`
+              : "Orders, favourites & rewards";
+            return (
+              <button
+                onClick={() => setStep("homely")}
+                aria-label={signedIn ? "Open My Homely" : "Login to My Homely"}
+                style={{
+                  width: "100%", marginTop: 12, textAlign: "left",
+                  display: "flex", alignItems: "center", gap: 12,
+                  background: HC.card, border: "1px solid #EADBC6", borderRadius: 14,
+                  padding: isDesktop ? "12px 16px" : "10px 12px",
+                  fontFamily: "'Nunito', sans-serif", color: HC.brown, cursor: "pointer",
+                }}
+              >
+                <span style={{
+                  width: 42, height: 42, borderRadius: "50%", flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  background: signedIn ? HC.orange : HC.peach, color: "#fff", fontWeight: 800, fontSize: 18,
+                }}>
+                  {signedIn && firstName ? firstName[0].toUpperCase() : <UserIcon s={21} c={signedIn ? "#fff" : HC.brown} />}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 800, fontSize: 16.5, lineHeight: 1.2 }}>
+                    {signedIn && firstName ? `Hi, ${firstName}` : "My Homely"}
+                  </span>
+                  <span style={{ display: "block", fontSize: 12.5, color: HC.brownMid, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {subtitle}
+                  </span>
+                </span>
+                <span style={{
+                  flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
+                  border: `1.5px solid ${HC.orange}`, borderRadius: 10, padding: "6px 11px",
+                  background: signedIn ? HC.orange : "transparent", color: signedIn ? "#fff" : HC.brown,
+                  fontWeight: 800, fontSize: 13.5,
+                }}>
+                  {signedIn ? "Open" : "Login"} <ArrowRightIcon s={13} c={signedIn ? "#fff" : HC.brown} />
+                </span>
+              </button>
+            );
+          })()}
         </div>
 
         {/* RIGHT — tiffin image (desktop only) */}
