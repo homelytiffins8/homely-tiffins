@@ -4014,7 +4014,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             const freeMeals = (loy?.vouchers || []).filter(v => v.status === "available").length;
             const subtitle = signedIn && loy?.enabled
               ? `${loy.balance} Homely Points${freeMeals ? ` · ${freeMeals} free meal${freeMeals > 1 ? "s" : ""}` : ""}`
-              : "Orders, favourites & rewards";
+              : "Orders, favourites & reward points";
             return (
               <button
                 onClick={() => setStep("homely")}
@@ -4038,7 +4038,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   <span style={{ display: "block", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 800, fontSize: 16.5, lineHeight: 1.2 }}>
                     {signedIn && firstName ? `Hi, ${firstName}` : "My Homely"}
                   </span>
-                  <span style={{ display: "block", fontSize: 12.5, color: HC.brownMid, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span style={{ display: "block", fontSize: 12.5, color: HC.brownMid, marginTop: 2, lineHeight: 1.35 }}>
                     {subtitle}
                   </span>
                 </span>
