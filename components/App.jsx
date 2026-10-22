@@ -6301,6 +6301,7 @@ function VisitorsCard() {
   const daily = data?.daily || [];
   const maxDaily = Math.max(...daily.map(d => d.visitors), 1);
   const variants = data?.variants || [];
+  const campaigns = data?.campaigns || [];
   const hasDetailed = (totals.detailed_sessions || 0) > 0;
   const trackingSince = fmtSince(tracking.tracking_since);
   const detailedSince = fmtSince(tracking.detailed_since);
@@ -6493,6 +6494,48 @@ function VisitorsCard() {
                 <span style={{ color: C.inkMid }}>{s.sessions} visits · {s.orders} orders ({pctOf(s.orders, s.sessions)}%)</span>
               </div>
             ))}
+          </div>
+
+          <div className="ht-card" style={{ padding: 20, marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Campaigns</h3>
+            <p style={{ fontSize: 11, color: C.inkLight, marginBottom: 12 }}>Visits that started from a tagged link (?utm_source=…&amp;utm_campaign=…). Scroll sideways on a phone.</p>
+            {campaigns.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: C.inkMid, lineHeight: 1.45 }}>
+                No tagged links in this period. Add tags to links you share, e.g. homelytiffins.com/?utm_source=whatsapp&amp;utm_campaign=winback_20oct
+              </p>
+            ) : (
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <table style={{ width: "100%", minWidth: 560, borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead>
+                    <tr>
+                      {["Campaign", "Visits", "Added to cart", "Orders", "Customers", "Revenue", "Visit → order %"].map((h, i) => (
+                        <th key={h} style={{ textAlign: i ? "right" : "left", fontSize: 10.5, color: C.inkLight, fontWeight: 700, padding: "6px 6px", borderBottom: `1.5px solid ${C.border}`, verticalAlign: "bottom", lineHeight: 1.2 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaigns.map(c => (
+                      <tr key={`${c.source}|${c.campaign}`}>
+                        <td style={{ ...num, textAlign: "left" }}>
+                          <div style={{ fontWeight: 700 }}>{c.campaign || <span style={{ color: C.inkLight, fontWeight: 500 }}>No campaign name</span>}</div>
+                          <div style={{ fontSize: 11, color: C.inkLight, textTransform: "capitalize" }}>{c.source || "No source"}</div>
+                        </td>
+                        <td style={num}>{c.visits}<div style={{ fontSize: 10.5, color: C.inkLight }}>{c.visitors} visitors</div></td>
+                        <td style={num}>{c.carted}</td>
+                        <td style={num}>{c.orders}</td>
+                        <td style={num}>{c.customers}</td>
+                        <td style={num}>₹{(Number(c.revenue) || 0).toLocaleString("en-IN")}</td>
+                        <td style={num}>{pctText(c.order_visits, c.visits)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 10, lineHeight: 1.45 }}>
+              <p>A visit counts under the link it was opened from. Customers who read a message and then open the site or app themselves aren't counted here.</p>
+              <p style={{ marginTop: 4 }}>Customers = different phone numbers that ordered. Revenue leaves out rejected orders.</p>
+            </div>
           </div>
 
           {period !== "today" && daily.length > 0 && (
