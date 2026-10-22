@@ -2916,6 +2916,7 @@ function OwnerPauseControls({ pause, onPause, onExtend, onResume }) {
   const [choice, setChoice] = useState(() => {
     try { return localStorage.getItem(PAUSE_CHOICE_KEY) || "0"; } catch { return "0"; }
   });
+  const [open, setOpen] = useState(false); // pause options stay folded until tapped
   const isCustom = choice.startsWith("custom:");
   const message = isCustom ? choice.slice(7) : (PAUSE_MESSAGES[Number(choice)] || PAUSE_MESSAGES[0]);
   const pick = (v) => {
@@ -2948,10 +2949,18 @@ function OwnerPauseControls({ pause, onPause, onExtend, onResume }) {
 
   return (
     <div style={{ background: "#FFFBF2", borderBottom: "1px solid #F3E2C0", padding: "10px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, fontWeight: 800, color: "#8A5A1A", marginRight: 4 }}>⏸ Too many orders? Pause for</span>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 800, color: "#8A5A1A" }}>⏸ Pause orders</span>
+        <span style={{ display: "inline-block", fontSize: 14, color: "#A85A00", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+      </button>
+      {open && <>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
         {PAUSE_MINUTES.map(m => (
-          <button key={m} style={btn} onClick={() => onPause(m, message.trim() || DEFAULT_PAUSE_MESSAGE)}>{m} min</button>
+          <button key={m} style={btn} onClick={() => { setOpen(false); onPause(m, message.trim() || DEFAULT_PAUSE_MESSAGE); }}>{m} min</button>
         ))}
       </div>
       <select
@@ -2972,6 +2981,7 @@ function OwnerPauseControls({ pause, onPause, onExtend, onResume }) {
         />
       )}
       <div style={{ marginTop: 4, fontSize: 10, color: "#A08A6A" }}>Customers see “Kitchen’s on a short break”, this line and a “We’ll be back in” countdown. Orders reopen on their own when it ends.</div>
+      </>}
     </div>
   );
 }
