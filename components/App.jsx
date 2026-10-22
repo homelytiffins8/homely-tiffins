@@ -88,6 +88,7 @@ const KEYS = {
   //   ht_poll_responses                   → `poll_responses` table
   lastDate: "ht_last_open_date",
   kitchenOpen: "ht_kitchen_open", // boolean — owner controls if accepting orders
+  kitchenPause: "ht_kitchen_pause", // timed pause { until, message }; {} = not paused
   poll: "ht_poll",                // owner-defined customer poll config { id, active, question, options[] }
   planConfig: "ht_plan_config",   // daily thali-plan config: sabjis/rice/salad/raita/sweet + plan prices
   contactInfo: "ht_contact_info", // owner-published contact channels { phone, whatsapp, email }
@@ -2832,9 +2833,131 @@ const HomeStyle = () => (
 );
 
 // ─────────────────────────────────────────────
+// TIMED KITCHEN PAUSE
+// Owner stops orders for N minutes (busy kitchen) without switching the
+// kitchen off. KEYS.kitchenPause holds { until, message }; {} = not paused.
+// It resumes on its own once `until` passes (place_order checks it too).
+// A message's first line is the heading, the rest is the body.
+// ─────────────────────────────────────────────
+const PAUSE_MESSAGES = [
+  "Sorry Orders Paused for Now!\nAunty ko rotiyan gol banane mein time lagta hai, jaldi mein chaukor ban jaati hain 😄",
+  "Kitchen full, tawa garam, Aunty busy 🔥",
+];
+const DEFAULT_PAUSE_MESSAGE = "Kitchen paused due to many orders";
+const PAUSE_MINUTES = [15, 20, 30, 45, 60];
+
+// Milliseconds left until `until` (ISO), re-rendering once a second.
+function useCountdown(until) {
+  const end = Date.parse(until || "") || 0;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (end <= Date.now()) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [end]);
+  return Math.max(0, end - now);
+}
+function fmtCountdown(ms) {
+  const s = Math.ceil(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = n => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+function PausedBanner({ pause }) {
+  const left = useCountdown(pause.until);
+  const [heading, ...rest] = String(pause.message || DEFAULT_PAUSE_MESSAGE).split("\n");
+  return (
+    <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
+      <div style={{
+        background: "#FFF6E5", border: "2px dashed #F0B860", borderRadius: 18,
+        padding: "20px 20px", textAlign: "center",
+      }}>
+        <div style={{ fontSize: 34 }}>🍳</div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "#A85A00", margin: "8px 0 4px" }}>{heading}</h2>
+        {rest.join("\n").trim() && (
+          <div style={{ fontSize: 13, color: HC.brownMid, fontWeight: 600, whiteSpace: "pre-line" }}>{rest.join("\n").trim()}</div>
+        )}
+        <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: HC.brownMid, textTransform: "uppercase", letterSpacing: 1 }}>Back in</div>
+        <div style={{ fontSize: 34, fontWeight: 800, color: "#A85A00", fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{fmtCountdown(left)}</div>
+      </div>
+    </div>
+  );
+}
+
+// Owner dashboard: pause buttons + message picker, or the running pause.
+const PAUSE_CHOICE_KEY = "ht_pause_message_choice"; // this device's last pick: "0".."n" or "custom:<text>"
+function OwnerPauseControls({ pause, onPause, onExtend, onResume }) {
+  const left = useCountdown(pause?.until);
+  const [choice, setChoice] = useState(() => {
+    try { return localStorage.getItem(PAUSE_CHOICE_KEY) || "0"; } catch { return "0"; }
+  });
+  const isCustom = choice.startsWith("custom:");
+  const message = isCustom ? choice.slice(7) : (PAUSE_MESSAGES[Number(choice)] || PAUSE_MESSAGES[0]);
+  const pick = (v) => {
+    setChoice(v);
+    try { localStorage.setItem(PAUSE_CHOICE_KEY, v); } catch { /* storage blocked */ }
+  };
+  const btn = { border: "1px solid #F0B860", background: "#fff", color: "#A85A00", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
+
+  if (pause) {
+    return (
+      <div style={{ background: "#FFF6E5", borderBottom: "1px solid #F0B860", padding: "10px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#A85A00" }}>
+              ⏸ Orders PAUSED · {fmtCountdown(left)} left
+            </div>
+            <div style={{ fontSize: 11, color: "#8A5A1A" }}>Resumes automatically at {fmtTime(pause.until)}</div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={btn} onClick={() => onExtend(10)}>+10 min</button>
+            <button style={{ ...btn, background: "#4CAF50", borderColor: "#4CAF50", color: "#fff" }} onClick={onResume}>Resume now</button>
+          </div>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: "#8A5A1A", whiteSpace: "pre-line" }}>
+          Customers see: “{pause.message || DEFAULT_PAUSE_MESSAGE}”
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#FFFBF2", borderBottom: "1px solid #F3E2C0", padding: "10px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, fontWeight: 800, color: "#8A5A1A", marginRight: 4 }}>⏸ Too many orders? Pause for</span>
+        {PAUSE_MINUTES.map(m => (
+          <button key={m} style={btn} onClick={() => onPause(m, message.trim() || DEFAULT_PAUSE_MESSAGE)}>{m} min</button>
+        ))}
+      </div>
+      <select
+        value={isCustom ? "custom" : choice}
+        onChange={e => pick(e.target.value === "custom" ? "custom:" : e.target.value)}
+        style={{ marginTop: 8, width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #F3E2C0", background: "#fff" }}
+      >
+        {PAUSE_MESSAGES.map((m, i) => <option key={i} value={String(i)}>{m.replace("\n", " · ")}</option>)}
+        <option value="custom">✏️ Write my own message…</option>
+      </select>
+      {isCustom && (
+        <textarea
+          value={choice.slice(7)}
+          onChange={e => pick("custom:" + e.target.value.slice(0, 200))}
+          placeholder={"First line = heading, next lines = message\ne.g. Orders Paused!\nAunty is busy, thoda wait karo 🙏"}
+          rows={3}
+          style={{ marginTop: 6, width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #F3E2C0", fontFamily: "inherit", boxSizing: "border-box" }}
+        />
+      )}
+      <div style={{ marginTop: 4, fontSize: 10, color: "#A08A6A" }}>Customers also see a “Back in mm:ss” countdown. Orders reopen on their own when it ends.</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // CUSTOMER APP
 // ─────────────────────────────────────────────
-function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen, poll, promoCodes = [], referralConfig, customers = [], onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
+function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = [], kitchenOpen: kitchenSwitchOn, kitchenPause = null, poll, promoCodes = [], referralConfig, customers = [], onPlaceOrder, onSubmitRating, onSubmitPollResponse, onSubmitContactMessage, onOwnerAccess }) {
+  // A running timed pause blocks ordering exactly like a closed kitchen.
+  const kitchenOpen = kitchenSwitchOn && !kitchenPause;
   const [step, setStep] = useState("home");
   // My Homely customer account (phone login). Guests never need it — the
   // menu and checkout work exactly as before without signing in.
@@ -3235,10 +3358,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       // Order was not saved — keep the cart so nothing is lost.
       window.alert(
         res.reason === "kitchen_closed" ? "Sorry, the kitchen is closed right now and is not accepting orders. Your order was NOT placed."
+        : res.reason === "kitchen_paused" ? "Sorry, orders are paused for a few minutes because of many orders. Your order was NOT placed, but your cart is saved — please try again when the timer ends."
         : res.reason === "unavailable" ? `Sorry, something in your cart is no longer available${res.detail && !/PLANS_NOT_AVAILABLE/.test(res.detail) ? ` (${res.detail})` : ""}. The menu has been refreshed — please review your cart. Your order was NOT placed.`
         : res.reason === "invalid" ? `Your order could not be placed: ${res.detail || "please check your details"}.`
         : "Sorry, your order could not be placed. Please check your connection and try again.");
-      if (res.reason === "kitchen_closed") setStep("home");
+      if (res.reason === "kitchen_closed" || res.reason === "kitchen_paused") setStep("home");
       return;
     }
     // Only counted once the order was actually saved. Once per order id (not
@@ -3300,16 +3424,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     (menu && menu.date === todayStr() && menuItems.length > 0) || plansAvailable
   );
 
-  // If owner closes the kitchen while customer is browsing the menu, send them home
+  // If owner closes the kitchen while customer is browsing the menu, send them home.
+  // A timed pause keeps the cart so they can carry on once it ends.
   useEffect(() => {
     if (!kitchenOpen && step === "order") {
       setStep("home");
+      setShowModal(false);
+      if (kitchenPause) return;
       setCart({});
       setPlanCartMeta({});
       setSpecialInstructions("");
-      setShowModal(false);
     }
-  }, [kitchenOpen, step]);
+  }, [kitchenOpen, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Site analytics: visit → menu → plan → cart → checkout → order ──
   // Driven off state changes rather than individual buttons, so every path
@@ -4083,8 +4209,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         )}
       </div>
 
-      {/* Kitchen closed / menu not published banners (only when relevant) */}
-      {!kitchenOpen ? (
+      {/* Kitchen paused / closed / menu not published banners (only when relevant) */}
+      {kitchenPause ? (
+        <PausedBanner pause={kitchenPause} />
+      ) : !kitchenOpen ? (
         <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
           <div style={{
             background: "#FBF1F0", border: "2px dashed #E6B3B0", borderRadius: 18,
@@ -8049,7 +8177,7 @@ function PinGate({ label, onUnlock }) {
   );
 }
 
-function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, kitchenPause = null, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onPauseKitchen, onExtendPause, onResumeKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTabRaw] = useState("orders");
   const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
   // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
@@ -8128,7 +8256,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
               Kitchen is {kitchenOpen ? "OPEN" : "CLOSED"}
             </div>
             <div style={{ fontSize: 11, color: kitchenOpen ? "#2E7D32" : "#C62828" }}>
-              {kitchenOpen ? "Customers can place orders" : "Customers cannot place orders"}
+              {!kitchenOpen ? "Customers cannot place orders" : kitchenPause ? "Orders paused for now (see below)" : "Customers can place orders"}
             </div>
           </div>
         </div>
@@ -8157,6 +8285,9 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
           }} />
         </button>
       </div>
+      {kitchenOpen && (
+        <OwnerPauseControls pause={kitchenPause} onPause={onPauseKitchen} onExtend={onExtendPause} onResume={onResumeKitchen} />
+      )}
 
       {/* Pending order alert banner */}
       {pendingCount > 0 && (
@@ -8447,6 +8578,19 @@ export default function App() {
   const customersRef = useRef(customers);
   useEffect(() => { customersRef.current = customers; }, [customers]);
   const [kitchenOpen, setKitchenOpen] = useState(true); // owner-controlled
+  const [kitchenPause, setKitchenPause] = useState({}); // timed pause { until, message }
+  // Re-evaluate the pause the moment it runs out, so every screen reopens by itself.
+  const [pauseTick, setPauseTick] = useState(0);
+  useEffect(() => {
+    const ms = (Date.parse(kitchenPause?.until || "") || 0) - Date.now();
+    if (ms <= 0) return;
+    const t = setTimeout(() => setPauseTick(n => n + 1), ms + 250);
+    return () => clearTimeout(t);
+  }, [kitchenPause]);
+  const activePause = useMemo(() => {
+    const end = Date.parse(kitchenPause?.until || "") || 0;
+    return kitchenOpen && end > Date.now() ? kitchenPause : null;
+  }, [kitchenPause, kitchenOpen, pauseTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const [poll, setPoll] = useState(null);               // owner-defined customer poll
   const [pollResponses, setPollResponses] = useState([]); // customer poll submissions (owner-only)
   const [promoCodes, setPromoCodes] = useState([]);       // owner-defined promo codes
@@ -8468,7 +8612,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       const today = todayStr();
-      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm, prm, rcfg] = await Promise.all([
+      const [m, td, cust, lastDate, cred, ko, hist, pl, pr, pc, ci, cm, prm, rcfg, kp] = await Promise.all([
         load(KEYS.menu),
         loadTodayOrdersFromTable(today), // Stage 4: reads from `orders` table now, not app_data
         loadCustomersFromTable(), // Stage 6: reads from `customers` table now, not app_data
@@ -8483,6 +8627,7 @@ export default function App() {
         loadContactMessagesFromTable(), // Stage 7: reads from `contact_messages` table now, not app_data
         load(KEYS.promoCodes),
         load(KEYS.referralConfig),
+        load(KEYS.kitchenPause),
       ]);
 
       if (m) setMenu(m);
@@ -8492,6 +8637,7 @@ export default function App() {
       if (cust) setCustomers(cust);
       if (cred) setCredit(cred);
       if (ko !== null && ko !== undefined) setKitchenOpen(!!ko);
+      if (kp) setKitchenPause(kp);
       if (pl) setPoll(pl);
       if (Array.isArray(pr)) setPollResponses(pr);
       if (Array.isArray(prm)) setPromoCodes(prm);
@@ -8531,7 +8677,8 @@ export default function App() {
     if (changedKey === KEYS.planConfig)  setPlanConfig(normalisePlanConfig(newVal));
     if (changedKey === KEYS.contactInfo)     setContactInfo({ phone: "", whatsapp: "", email: "", ...(newVal || {}) });
     if (changedKey === KEYS.kitchenOpen) setKitchenOpen(!!newVal);
-    if (changedKey === KEYS.poll)        setPoll(newVal || null);
+    if (changedKey === KEYS.kitchenPause) setKitchenPause(newVal && typeof newVal === "object" ? newVal : {});
+    if (changedKey === KEYS.poll)       setPoll(newVal || null);
     if (changedKey === KEYS.promoCodes) setPromoCodes(Array.isArray(newVal) ? newVal : []);
     if (changedKey === KEYS.referralConfig) setReferralConfig({ ...defaultReferralConfig(), ...(newVal || {}) });
   }, []);
@@ -8548,7 +8695,7 @@ export default function App() {
   todayOrdersRef.current = todayOrders;
   const catchUpSync = useCallback(async () => {
     // Config keys still live in app_data, so fetch and apply those.
-    const configKeys = [KEYS.menu, KEYS.planConfig, KEYS.contactInfo, KEYS.kitchenOpen,
+    const configKeys = [KEYS.menu, KEYS.planConfig, KEYS.contactInfo, KEYS.kitchenOpen, KEYS.kitchenPause,
                         KEYS.poll, KEYS.promoCodes, KEYS.referralConfig];
     const results = await Promise.all(configKeys.map(k => load(k)));
     configKeys.forEach((k, i) => {
@@ -8824,7 +8971,26 @@ export default function App() {
     const next = !kitchenOpen;
     setKitchenOpen(next);
     await save(KEYS.kitchenOpen, next);
-  }, [kitchenOpen]);
+    // The switch overrides a timed pause either way, so clear any leftover one.
+    if (kitchenPause?.until) { setKitchenPause({}); await save(KEYS.kitchenPause, {}); }
+  }, [kitchenOpen, kitchenPause]);
+
+  // ── Timed pause ── ({} rather than deleting the row: catch-up sync ignores missing rows)
+  const handlePauseKitchen = useCallback(async (minutes, message) => {
+    const next = { until: new Date(Date.now() + minutes * 60000).toISOString(), message };
+    setKitchenPause(next);
+    await save(KEYS.kitchenPause, next);
+  }, []);
+  const handleExtendPause = useCallback(async (minutes) => {
+    const from = Math.max(Date.now(), Date.parse(kitchenPause?.until || "") || 0);
+    const next = { ...kitchenPause, until: new Date(from + minutes * 60000).toISOString() };
+    setKitchenPause(next);
+    await save(KEYS.kitchenPause, next);
+  }, [kitchenPause]);
+  const handleResumeKitchen = useCallback(async () => {
+    setKitchenPause({});
+    await save(KEYS.kitchenPause, {});
+  }, []);
 
   // ── Save poll config ──
   // If the question or choices changed, mint a fresh poll id so responses are
@@ -8907,6 +9073,7 @@ export default function App() {
         console.error("[place_order RPC] failed:", error);
         const m = error.message || "";
         failure = /KITCHEN_CLOSED/.test(m) ? "kitchen_closed"
+          : /KITCHEN_PAUSED/.test(m) ? "kitchen_paused"
           : /PLANS_NOT_AVAILABLE|ITEM_UNAVAILABLE/.test(m) ? "unavailable"
           : /INVALID_ORDER/.test(m) ? "invalid" : "error";
         failureDetail = m.replace(/^(ITEM_UNAVAILABLE|INVALID_ORDER):\s*/, "");
@@ -8931,7 +9098,7 @@ export default function App() {
       setTodayOrders(prev => prev.filter(o => o.id !== order.id));
       if (failure === "kitchen_closed") setKitchenOpen(false);
       // Menu/plan changed under the customer — pull fresh config so the screen matches the server.
-      if (failure === "unavailable") catchUpSync();
+      if (failure === "unavailable" || failure === "kitchen_paused") catchUpSync();
       return { ok: false, reason: failure, detail: failureDetail };
     }
 
@@ -9320,6 +9487,7 @@ export default function App() {
           orders={todayOrders}
           ordersHistory={ordersHistory}
           kitchenOpen={kitchenOpen}
+          kitchenPause={activePause}
           poll={poll}
           promoCodes={promoCodes}
           referralConfig={referralConfig}
@@ -9357,6 +9525,7 @@ export default function App() {
           customers={customers}
           credit={credit}
           kitchenOpen={kitchenOpen}
+          kitchenPause={activePause}
           poll={poll}
           pollResponses={pollResponses}
           promoCodes={promoCodes}
@@ -9375,6 +9544,9 @@ export default function App() {
           onDeleteCreditCustomer={handleDeleteCreditCustomer}
           onReconcileCredit={handleReconcileCredit}
           onToggleKitchen={handleToggleKitchen}
+          onPauseKitchen={handlePauseKitchen}
+          onExtendPause={handleExtendPause}
+          onResumeKitchen={handleResumeKitchen}
           onResetAllData={handleResetAllData}
           onSavePoll={handleSavePoll}
           onTogglePoll={handleTogglePoll}
