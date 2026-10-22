@@ -2837,13 +2837,13 @@ const HomeStyle = () => (
 // Owner stops orders for N minutes (busy kitchen) without switching the
 // kitchen off. KEYS.kitchenPause holds { until, message }; {} = not paused.
 // It resumes on its own once `until` passes (place_order checks it too).
-// A message's first line is the heading, the rest is the body.
+// The banner heading is fixed; the owner picks the line under it.
 // ─────────────────────────────────────────────
 const PAUSE_MESSAGES = [
-  "Sorry Orders Paused for Now!\nAunty ko rotiyan gol banane mein time lagta hai, jaldi mein chaukor ban jaati hain 😄",
+  "Aunty ko rotiyan gol banane mein time lagta hai, jaldi mein chaukor ban jaati hain 😄",
   "Kitchen full, tawa garam, Aunty busy 🔥",
 ];
-const DEFAULT_PAUSE_MESSAGE = "Kitchen paused due to many orders";
+const DEFAULT_PAUSE_MESSAGE = "Bahut saare orders aa gaye hain, thodi der mein wapas aate hain 🙏";
 const PAUSE_MINUTES = [15, 20, 30, 45, 60];
 
 // Milliseconds left until `until` (ISO), re-rendering once a second.
@@ -2866,20 +2866,44 @@ function fmtCountdown(ms) {
 
 function PausedBanner({ pause }) {
   const left = useCountdown(pause.until);
-  const [heading, ...rest] = String(pause.message || DEFAULT_PAUSE_MESSAGE).split("\n");
+  const s = Math.ceil(left / 1000);
+  const parts = [[Math.floor(s / 60) % 60, "min"], [s % 60, "sec"]];
+  if (s >= 3600) parts.unshift([Math.floor(s / 3600), "hr"]);
+  const digit = { fontSize: 46, fontWeight: 800, color: "#C2660A", fontVariantNumeric: "tabular-nums", lineHeight: 1 };
   return (
     <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
+      <style>{`
+        @keyframes htPausePulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
+        @media (prefers-reduced-motion: reduce) { .ht-pause-dot { animation: none !important; } }
+      `}</style>
       <div style={{
-        background: "#FFF6E5", border: "2px dashed #F0B860", borderRadius: 18,
-        padding: "20px 20px", textAlign: "center",
+        background: "#FFF9EC", border: "2px solid #F5BE4F", borderRadius: 22,
+        padding: "18px 18px 20px", textAlign: "center",
       }}>
-        <div style={{ fontSize: 34 }}>🍳</div>
-        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "#A85A00", margin: "8px 0 4px" }}>{heading}</h2>
-        {rest.join("\n").trim() && (
-          <div style={{ fontSize: 13, color: HC.brownMid, fontWeight: 600, whiteSpace: "pre-line" }}>{rest.join("\n").trim()}</div>
-        )}
-        <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: HC.brownMid, textTransform: "uppercase", letterSpacing: 1 }}>Back in</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: "#A85A00", fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{fmtCountdown(left)}</div>
+        <img src="/pause-roti.webp" alt="" style={{ width: 190, maxWidth: "70%", height: "auto", display: "block", margin: "0 auto" }} />
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 10, background: "#FDE9B8", borderRadius: 999, padding: "6px 14px" }}>
+          <span className="ht-pause-dot" style={{ width: 10, height: 10, borderRadius: "50%", background: "#E08A00", animation: "htPausePulse 1.6s ease-in-out infinite" }} />
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#3E2A14", letterSpacing: 1 }}>ORDERS PAUSED</span>
+        </div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, fontWeight: 800, color: "#6B3410", margin: "10px 0 6px", lineHeight: 1.15 }}>Kitchen’s on a short break</h2>
+        <div style={{ fontSize: 14, color: "#4A3A2A", fontWeight: 600, lineHeight: 1.45, whiteSpace: "pre-line" }}>{pause.message || DEFAULT_PAUSE_MESSAGE}</div>
+        <div style={{
+          margin: "14px auto 0", maxWidth: 260, background: "linear-gradient(180deg, #FDEFC8, #FBE6B0)",
+          border: "2px solid #F8DA95", borderRadius: 18, padding: "10px 12px 8px",
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#5A4630", letterSpacing: 1.5 }}>WE’LL BE BACK IN</div>
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-start", gap: 6, marginTop: 4 }}>
+            {parts.map(([n, label], i) => (
+              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                {i > 0 && <span style={{ ...digit, opacity: .8 }}>:</span>}
+                <div>
+                  <div style={digit}>{String(n).padStart(2, "0")}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#5A4630", letterSpacing: 1.5, marginTop: 3, textTransform: "uppercase" }}>{label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2942,12 +2966,12 @@ function OwnerPauseControls({ pause, onPause, onExtend, onResume }) {
         <textarea
           value={choice.slice(7)}
           onChange={e => pick("custom:" + e.target.value.slice(0, 200))}
-          placeholder={"First line = heading, next lines = message\ne.g. Orders Paused!\nAunty is busy, thoda wait karo 🙏"}
+          placeholder={"Shown under “Kitchen’s on a short break”\ne.g. Aunty is busy, thoda wait karo 🙏"}
           rows={3}
           style={{ marginTop: 6, width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #F3E2C0", fontFamily: "inherit", boxSizing: "border-box" }}
         />
       )}
-      <div style={{ marginTop: 4, fontSize: 10, color: "#A08A6A" }}>Customers also see a “Back in mm:ss” countdown. Orders reopen on their own when it ends.</div>
+      <div style={{ marginTop: 4, fontSize: 10, color: "#A08A6A" }}>Customers see “Kitchen’s on a short break”, this line and a “We’ll be back in” countdown. Orders reopen on their own when it ends.</div>
     </div>
   );
 }
