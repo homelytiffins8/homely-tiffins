@@ -3081,7 +3081,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       (nowTick - new Date(live.createdAt).getTime()) > 15 * 60 * 1000;
     return (
       <div style={{ minHeight: "100vh", background: C.cream, padding: "24px 16px" }}>
-        {/* Opens the food-preference form over this page after an order, until the customer saves it */}
+        {/* Opens the food-preference form over this page once per customer (see PreferenceAutoPrompt) */}
         {prefPromptOrderId === live.id && (
           <PreferenceAutoPrompt supabase={supabase} C={C} orderId={live.id}
             onClose={() => { setPrefPromptOrderId(null); setPrefTick(t => t + 1); }} />

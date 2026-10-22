@@ -1513,7 +1513,7 @@ export function PreferenceFormPage({ supabase, C = DEFAULT_C, token, onDone }) {
         </div>
         <div style={{ position: "absolute", left: "4%", right: "4%", bottom: "3.6cqw", display: "flex", alignItems: "center", gap: "3cqw", background: "rgba(255,248,238,0.96)", borderRadius: "3cqw", padding: "2.2cqw 3.4cqw", fontSize: "3cqw", lineHeight: 1.3, fontWeight: 600, color: "#4A2A18" }}>
           <span aria-hidden="true" style={{ fontSize: "5cqw" }}>🔁</span>
-          <span style={{ flex: 1 }}>No time now? Skip it — this form will open again after every 2nd order until you save your answers.</span>
+          <span style={{ flex: 1 }}>No time now? Skip it — you can fill it in any time from your order page or My Homely.</span>
         </div>
       </div>
       <Card>
@@ -1578,9 +1578,9 @@ export function PreferencePromoCard({ supabase, C = DEFAULT_C, orderId, style, r
 
 // ═════════════════════════════════════════════════════════════
 // CUSTOMER-FACING: AUTO-OPEN AFTER AN ORDER
-// Opens the form over the order page once an order is placed, until the
-// customer has saved it, but only on every 2nd order (2, 4, 6…). Skipping closes
-// it; it opens again after their next even-numbered order. Never blocks ordering: any failure just closes it quietly.
+// Opens the form over the order page once per customer, from their 2nd order on.
+// After a save or a skip it never opens on its own again; the PreferencePromoCard and
+// My Homely link stay for filling it later. Never blocks ordering: any failure just closes it quietly.
 // ═════════════════════════════════════════════════════════════
 export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose }) {
   const [token, setToken] = useState(null);
@@ -1594,8 +1594,8 @@ export function PreferenceAutoPrompt({ supabase, C = DEFAULT_C, orderId, onClose
           const s = await callRpc(supabase, "pref_form_status_for_order", { p_order_id: orderId });
           if (s && s.ok) {
             if (s.completed) { if (live) onClose(); return; }
-            // Only after every 2nd order (2, 4, 6…). order_no is missing until the DB function is updated; then show as before.
-            if (typeof s.order_no === "number" && s.order_no % 2 !== 0) { if (live) onClose(); return; }
+            // Only once: never after a skip (asked), and not on the first order, which has the "how did you hear" question.
+            if (s.asked || (typeof s.order_no === "number" && s.order_no < 2)) { if (live) onClose(); return; }
             const t = await callRpc(supabase, "pref_form_token_for_order", { p_order_id: orderId });
             if (t && t.ok) { if (live) setToken(t.token); return; }
           }
