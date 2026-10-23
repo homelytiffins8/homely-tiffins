@@ -2833,6 +2833,38 @@ const HomeStyle = () => (
 );
 
 // ─────────────────────────────────────────────
+// HOMELY REWARD POINTS — "coming soon" teaser
+// The owner's own artwork. public/rewards-popup.jpg is the popup shown on
+// the order page after every order; its ✕ and orange button are drawn into
+// the image, so transparent buttons sit over them. public/rewards-banner.jpg
+// is the same art without the ✕, placed on the home page above Homely Gold.
+// ─────────────────────────────────────────────
+const REWARDS_ALT = "Introducing Homely Reward Points for all. Get reward points on every purchase. Coming soon, next month.";
+const REWARDS_RATIO = 720 / 1004;
+
+function RewardsPopup({ onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const hit = { position: "absolute", background: "transparent", border: "none", padding: 0, cursor: "pointer" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Homely Reward Points" data-testid="rewards-popup"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(26,18,8,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, animation: "fadeIn 0.2s ease" }}>
+      {/* Width also capped by screen height so the whole card always fits */}
+      <div style={{ position: "relative", width: `min(92vw, 380px, calc((100vh - 32px) * ${REWARDS_RATIO.toFixed(3)}))`, animation: "slideIn 0.25s ease" }}>
+        <img src="/rewards-popup.jpg" alt={REWARDS_ALT} width={720} height={1004}
+          style={{ display: "block", width: "100%", height: "auto", borderRadius: "3.4% / 2.45%", boxShadow: "0 18px 40px rgba(0,0,0,0.35)" }} />
+        <button type="button" aria-label="Close" onClick={onClose} style={{ ...hit, right: 0, top: 0, width: "16%", height: "9%" }} />
+        <button type="button" aria-label="Got it" onClick={onClose} style={{ ...hit, left: "5%", right: "5%", top: "87%", height: "8%" }} />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // TIMED KITCHEN PAUSE
 // Owner stops orders for N minutes (busy kitchen) without switching the
 // kitchen off. KEYS.kitchenPause holds { until, message }; {} = not paused.
@@ -3168,6 +3200,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // "How did you hear about Homely?" sheet (first order only): "checking" | "open" | "closed".
   // The feedback poll waits until it is closed so the two never stack.
   const [acqState, setAcqState] = useState("closed");
+  // Reward Points teaser: holds the just-placed order id; opens after the pop-ups above are done.
+  const [rewardsOrderId, setRewardsOrderId] = useState(null);
 
   // Read remembered phone on mount (no-op if browser storage isn't available)
   useEffect(() => {
@@ -3430,6 +3464,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
     if (isPollLive(poll) && !getSeenPolls().includes(poll.id)) {
       setTimeout(() => setPollOrder(order), 550);
     }
+    // After every order. The delay lets the "how did you hear" check start
+    // first, so this never flashes up before it.
+    setTimeout(() => setRewardsOrderId(order.id), 600);
   };
 
   const trackOrder = async () => {
@@ -3671,6 +3708,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             onSubmit={onSubmitPollResponse}
             onClose={() => setPollOrder(null)}
           />
+        )}
+
+        {/* Reward Points teaser — after every order, once the other pop-ups are closed */}
+        {rewardsOrderId === live.id && !isRejected && acqState === "closed" && prefPromptOrderId !== live.id && !(pollOrder && isPollLive(poll)) && (
+          <RewardsPopup onClose={() => setRewardsOrderId(null)} />
         )}
       </div>
     );
@@ -4451,6 +4493,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             Couldn't enable notifications: {notifError}
           </div>
         )}
+      </div>
+
+      {/* ═══════ SECTION 3A — HOMELY REWARD POINTS (coming soon) ═══════ */}
+      <div style={{ maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
+        <img
+          src="/rewards-banner.jpg"
+          alt={REWARDS_ALT}
+          width={720}
+          height={1004}
+          loading="lazy"
+          style={{ display: "block", width: "100%", height: "auto", borderRadius: "3.4% / 2.45%", boxShadow: "0 6px 20px rgba(59,42,26,0.25)" }}
+        />
       </div>
 
       {/* ═══════ SECTION 3B — HOMELY GOLD LAUNCH BANNER ═══════ */}
