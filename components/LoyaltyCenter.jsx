@@ -17,7 +17,10 @@ const DEFAULT_C = {
 
 const fmtINR = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
 const fmtTs = (t) => t ? new Date(t).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
-const errMsg = (e) => String((e && e.message) || e || "Something went wrong").replace(/^INVALID:\s*/, "");
+const errMsg = (e) => {
+  const m = String((e && e.message) || e || "Something went wrong").replace(/^INVALID:\s*/, "");
+  return m.charAt(0).toUpperCase() + m.slice(1);
+};
 async function callRpc(supabase, fn, args) {
   const { data, error } = await supabase.rpc(fn, args || {});
   if (error) throw new Error(error.message || "Request failed");
@@ -250,7 +253,7 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
 
 function ToggleSwitch({ C, on, busy, onChange }) {
   return (
-    <button type="button" role="switch" aria-checked={on} disabled={busy} onClick={() => onChange(!on)}
+    <button type="button" role="switch" aria-checked={on} aria-label="Loyalty programme on/off" disabled={busy} onClick={() => onChange(!on)}
       style={{ display: "flex", alignItems: "center", gap: 8, border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", fontFamily: "inherit", flexShrink: 0 }}>
       <span style={{ fontWeight: 800, fontSize: 13, color: on ? C.green : C.inkMid, minWidth: 24, textAlign: "right" }}>{busy ? "…" : on ? "On" : "Off"}</span>
       <span style={{ position: "relative", width: 46, height: 26, borderRadius: 13, background: on ? C.green : C.border, transition: "background .2s", opacity: busy ? 0.6 : 1 }}>
