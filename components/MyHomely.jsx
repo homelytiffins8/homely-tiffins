@@ -377,7 +377,7 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
   if (view === "profile") return <ProfileView supabase={supabase} account={account} towers={towers} notif={notif} onBack={back} />;
   if (view === "orders") return <OrdersView supabase={supabase} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} onRegularChanged={load} regularId={p.regularOrderId} />;
   if (view === "favourites") return <FavouritesView fav={fav} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} />;
-  if (view === "rewards") return <RewardsView rewards={account.rewards} onBack={back} />;
+  if (view === "rewards") return <RewardsView rewards={account.rewards} onBack={back} onOrder={canOrder ? onClose : null} />;
   if (view === "ledger") return <LedgerView ledger={ledger} onBack={back} />;
 
   const regular = fav?.regular;
@@ -825,7 +825,7 @@ function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
 }
 
 // ── Rewards ──
-function RewardsView({ rewards, onBack }) {
+function RewardsView({ rewards, onBack, onOrder }) {
   const [copied, setCopied] = useState(false);
   if (!rewards) return <Shell title="Rewards" onBack={onBack}><Busy /></Shell>;
   const ref = rewards.referral || {};
@@ -848,6 +848,41 @@ function RewardsView({ rewards, onBack }) {
   const earnText = loy.earn?.mode === "per_order" ? `${loy.earn.pointsPerOrder} points on every delivered order`
     : loy.earn?.mode === "per_amount" ? `${loy.earn.pointsPerStep} point${loy.earn.pointsPerStep === 1 ? "" : "s"} for every ₹${loy.earn.rupeesStep} you spend` : null;
   const vouchers = loy.vouchers || [];
+  // "How to use your points" steps, worded from the owner's loyalty settings.
+  const minRedeem = Number(loy.minRedeem) || 0;
+  const readyToUse = loy.balance > 0 && loy.balance >= minRedeem;
+  const howSteps = [
+    {
+      title: "Order and earn",
+      sub: <>{earnText ? `Get ${earnText}` : "Get points on your delivered orders"}{loy.minOrder > 0 ? ` of ${fmtINR(loy.minOrder)} or more` : ""}.</>,
+    },
+    minRedeem > 0 && {
+      title: `Collect ${minRedeem} points`,
+      sub: "That's when they're ready to spend.",
+      extra: (
+        <>
+          <div style={{ height: 7, background: HC.peach, borderRadius: 4, marginTop: 6, overflow: "hidden" }}>
+            <div style={{ width: `${Math.min(100, Math.round(loy.balance / minRedeem * 100))}%`, height: "100%", background: readyToUse ? HC.green : HC.orange, borderRadius: 4 }} />
+          </div>
+          <div style={{ fontSize: 11.5, fontWeight: 800, marginTop: 3, color: readyToUse ? HC.green : HC.brownMid }}>
+            {readyToUse ? "You're ready" : `${loy.balance} / ${minRedeem} · ${minRedeem - loy.balance} to go`}
+          </div>
+        </>
+      ),
+    },
+    {
+      title: "Tick it at checkout",
+      sub: loy.redeemOn === "sides"
+        ? <>Look for "Use Homely Points" in Your rewards. Points pay for the Sweet or Raita of the day in your cart.</>
+        : <>Look for "Use Homely Points" in Your rewards. The ₹ comes off right away{loy.maxRedeemPct < 100 ? ` (up to ${loy.maxRedeemPct}% of an order)` : ""}.</>,
+      extra: (
+        <div style={{ marginTop: 6, background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 8, padding: "6px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 13, height: 13, borderRadius: 3, border: `1.5px solid ${HC.orange}`, background: "#fff", flex: "none" }} />
+          Use Homely Points
+        </div>
+      ),
+    },
+  ].filter(Boolean);
 
   return (
     <Shell title="Rewards" onBack={onBack}>
@@ -859,17 +894,31 @@ function RewardsView({ rewards, onBack }) {
             <span style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 800 }}>{loy.balance}</span>
             <span style={{ fontSize: 13, color: HC.brownMid }}>points ≈ {fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}</span>
           </div>
-          <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.55 }}>
-            {earnText && <>You earn {earnText}. </>}
-            {loy.minOrder > 0 && <>Orders of {fmtINR(loy.minOrder)} or more count for rewards. </>}
-            {loy.redeemOn === "sides"
-              ? <>Use them at checkout to pay for your Sweet or Raita of the day{loy.minRedeem ? ` (from ${loy.minRedeem} points)` : ""}.</>
-              : <>Use them at checkout{loy.minRedeem ? ` (from ${loy.minRedeem} points)` : ""}{loy.maxRedeemPct < 100 ? `, up to ${loy.maxRedeemPct}% of an order` : ""}.</>}
-          </div>
           {nextMs && (
             <div style={{ marginTop: 12, background: HC.peach, borderRadius: 10, padding: "10px 12px", fontSize: 13 }}>
               🎯 <b>{nextMs.left} more order{nextMs.left === 1 ? "" : "s"}</b> to get {msText(nextMs)}
             </div>
+          )}
+        </Card>
+      )}
+
+      {loy.enabled && (
+        <Card>
+          <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: 18, color: HC.brown, marginBottom: 12 }}>How to use your points</div>
+          {howSteps.map((s, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, marginBottom: i < howSteps.length - 1 ? 14 : 0 }}>
+              <span style={{ flex: "none", width: 26, height: 26, borderRadius: "50%", background: HC.orange, color: "#fff", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>{s.title}</div>
+                <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.5 }}>{s.sub}</div>
+                {s.extra}
+              </div>
+            </div>
+          ))}
+          {onOrder && (
+            <PrimaryBtn onClick={onOrder} style={{ marginTop: 16, fontSize: 14 }}>
+              {readyToUse ? "Order now and use your points" : "Order now"}
+            </PrimaryBtn>
           )}
         </Card>
       )}

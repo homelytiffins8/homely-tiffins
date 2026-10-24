@@ -1255,7 +1255,7 @@ const GlobalStyle = () => (
 // verified phone, and offers their Homely Points / free-meal vouchers.
 // The server (place_order) re-checks every reward; amounts shown here are
 // the same calculation, for display.
-function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], account = null, onConfirm, onClose }) {
+function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], account = null, onSignIn, onConfirm, onClose }) {
   const prof = account?.profile || null;
   const [form, setForm] = useState({
     name: prof?.name || "", phone: account?.phone || "", tower: prof?.tower || "", flat: prof?.flat || "",
@@ -1268,6 +1268,17 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
   const usableVouchers = (loyalty?.vouchers || []).filter(v => v.status === "available" && cartVariants.has(v.variant));
   const [voucherId, setVoucherId] = useState("");
   const [usePoints, setUsePoints] = useState(false);
+  // Signed in from the rewards box mid-checkout: lock the verified phone and
+  // fill only what the customer hasn't typed yet.
+  useEffect(() => {
+    if (!account?.phone) return;
+    setForm(p => ({
+      name: p.name || prof?.name || "", phone: account.phone,
+      tower: p.tower || prof?.tower || "", flat: p.flat || prof?.flat || "",
+    }));
+    setErrors(p => ({ ...p, phone: "" }));
+    if (prof?.deliveryInstructions) setDeliveryInstructions(d => d || prof.deliveryInstructions);
+  }, [account?.phone, prof]); // eslint-disable-line react-hooks/exhaustive-deps
   // Referral codes are checked on the server (debounced) — see check_referral_code.
   const [referralCheck, setReferralCheck] = useState(null);
   useEffect(() => {
@@ -1330,6 +1341,8 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
   const pointsHint = !hasPoints || canUsePoints ? ""
     : pointsOnSides && sidesTotal <= 0 ? `Add a Sweet or Raita to pay for it with your ${pointsBalance} Homely Points.`
     : `Homely Points can be used from ${minRedeem} points — this order can take only ${maxPointsToUse}.`;
+  // Not enough points yet: show how far they are from the minimum.
+  const belowMinRedeem = !!(loyalty?.enabled && pointValue > 0 && minRedeem > 0 && pointsBalance < minRedeem);
   const discount = codeDiscount + voucherDiscount + pointsDiscount;
   const finalTotal = Math.max(0, cartTotal - discount);
 
@@ -1479,10 +1492,32 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
           )}
         </div>
 
-        {/* My Homely rewards */}
-        {account && (usableVouchers.length > 0 || canUsePoints || pointsHint) && (
+        {/* My Homely rewards — signed out: a nudge to sign in */}
+        {!account && onSignIn && (
           <div style={{ marginTop: 14, padding: "12px 14px", background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", marginBottom: 6 }}>🎁 Your rewards</div>
+            <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>Have Homely Points? Sign in to use them on this order.</div>
+            <button type="button" onClick={onSignIn} style={{ marginTop: 8, border: "none", borderRadius: 8, padding: "7px 16px", background: C.saffron, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+              Sign in
+            </button>
+            <div style={{ fontSize: 11, color: C.inkLight, marginTop: 8 }}>New to Homely? Sign in and this order starts earning points.</div>
+          </div>
+        )}
+
+        {account && (usableVouchers.length > 0 || canUsePoints || pointsHint || belowMinRedeem) && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", marginBottom: 6 }}>🎁 Your rewards</div>
+            {belowMinRedeem && (
+              <div style={{ padding: "2px 0 4px" }}>
+                <div style={{ fontSize: 13, color: C.ink }}>You have <b>{pointsBalance} point{pointsBalance === 1 ? "" : "s"}</b>. You can use them from {minRedeem}.</div>
+                <div style={{ height: 7, background: "#EBD9F2", borderRadius: 4, overflow: "hidden", margin: "8px 0 4px" }}>
+                  <div style={{ width: `${Math.min(100, Math.round(pointsBalance / minRedeem * 100))}%`, height: "100%", background: "#8E44AD", borderRadius: 4 }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.inkMid }}>
+                  <span>{pointsBalance} / {minRedeem}</span><span>{minRedeem - pointsBalance} to go</span>
+                </div>
+              </div>
+            )}
             {usableVouchers.map(v => (
               <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, color: C.ink, cursor: "pointer" }}>
                 <input type="checkbox" checked={voucherId === v.id} onChange={() => setVoucherId(id => id === v.id ? "" : v.id)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
@@ -1494,7 +1529,9 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
               <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, color: C.ink, cursor: "pointer" }}>
                 <input type="checkbox" checked={usePoints} onChange={() => setUsePoints(u => !u)} style={{ accentColor: C.saffron, width: 16, height: 16 }} />
                 <span style={{ flex: 1 }}>Use Homely Points <span style={{ color: C.inkLight }}>({pointsBalance} available)</span></span>
-                {usePoints && <span style={{ fontWeight: 700, color: "#2E7D32" }}>{pointsToUse} pts · −₹{pointsDiscount}</span>}
+                {usePoints
+                  ? <span style={{ fontWeight: 700, color: "#2E7D32" }}>{pointsToUse} pts · −₹{pointsDiscount}</span>
+                  : <span style={{ fontSize: 12, color: C.inkMid }}>Save ₹{maxPointsDiscount}</span>}
               </label>
             )}
             {canUsePoints && pointsOnSides && (
@@ -3170,6 +3207,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const [photoPreview, setPhotoPreview] = useState(null); // { src, label } | null — full-screen image viewer
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [checkoutLogin, setCheckoutLogin] = useState(false); // My Homely sign-in opened from checkout
   const [showInvalidPhone, setShowInvalidPhone] = useState(false);
   const [activeOrder, setActiveOrder] = useState(null);
   // Ticking clock so "stuck pending order" banners update live without a refresh
@@ -4028,9 +4066,16 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             referralConfig={referralConfig}
             customers={customers}
             account={account.signedIn ? account : null}
+            onSignIn={() => setCheckoutLogin(true)}
             onConfirm={handleConfirmOrder}
             onClose={() => setShowModal(false)}
           />
+        )}
+        {/* Sign-in over the checkout sheet, so the cart and typed details stay put */}
+        {showModal && checkoutLogin && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 600, overflowY: "auto" }}>
+            <MyHomelyLogin supabase={supabase} onSignedIn={() => setCheckoutLogin(false)} onClose={() => setCheckoutLogin(false)} />
+          </div>
         )}
       </div>
     );
