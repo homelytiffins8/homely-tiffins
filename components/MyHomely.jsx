@@ -197,7 +197,7 @@ const inputStyle = {
 // ─────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────
-export function MyHomelyLogin({ supabase, onSignedIn, onClose }) {
+export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← Menu" }) {
   const [step, setStep] = useState("phone"); // phone | otp | password
   const [phoneInput, setPhoneInput] = useState("");
   const [password, setPassword] = useState("");
@@ -268,7 +268,7 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose }) {
   };
 
   return (
-    <Shell onBack={onClose} backLabel="← Menu">
+    <Shell onBack={onClose} backLabel={backLabel}>
       <div style={{ textAlign: "center", margin: "8px 0 18px" }}>
         <img src="/logo.png" alt="" style={{ width: 64, height: 64, borderRadius: "50%", border: `2px solid ${HC.brown}`, objectFit: "cover" }} />
         <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, margin: "10px 0 2px" }}>My Homely</h1>

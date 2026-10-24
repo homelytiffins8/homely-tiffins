@@ -4074,7 +4074,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         {/* Sign-in over the checkout sheet, so the cart and typed details stay put */}
         {showModal && checkoutLogin && (
           <div style={{ position: "fixed", inset: 0, zIndex: 600, overflowY: "auto" }}>
-            <MyHomelyLogin supabase={supabase} onSignedIn={() => setCheckoutLogin(false)} onClose={() => setCheckoutLogin(false)} />
+            <MyHomelyLogin supabase={supabase} backLabel="← Checkout" onSignedIn={() => setCheckoutLogin(false)} onClose={() => setCheckoutLogin(false)} />
           </div>
         )}
       </div>
