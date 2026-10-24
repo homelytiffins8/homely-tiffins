@@ -1268,6 +1268,14 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
   const usableVouchers = (loyalty?.vouchers || []).filter(v => v.status === "available" && cartVariants.has(v.variant));
   const [voucherId, setVoucherId] = useState("");
   const [usePoints, setUsePoints] = useState(false);
+  // Signed out: only offer "Sign in to use your points" while loyalty is on.
+  const [guestLoyaltyOn, setGuestLoyaltyOn] = useState(false);
+  useEffect(() => {
+    if (account) return;
+    let alive = true;
+    supabase.rpc("loyalty_enabled").then(({ data, error }) => { if (alive && !error) setGuestLoyaltyOn(data === true); });
+    return () => { alive = false; };
+  }, [!!account]); // eslint-disable-line react-hooks/exhaustive-deps
   // Signed in from the rewards box mid-checkout: lock the verified phone and
   // fill only what the customer hasn't typed yet.
   useEffect(() => {
@@ -1493,7 +1501,7 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
         </div>
 
         {/* My Homely rewards — signed out: a nudge to sign in */}
-        {!account && onSignIn && (
+        {!account && onSignIn && guestLoyaltyOn && (
           <div style={{ marginTop: 14, padding: "12px 14px", background: "#F7F0FA", border: "1px solid #E1BEE7", borderRadius: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#6A1B9A", marginBottom: 6 }}>🎁 Your rewards</div>
             <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>Have Homely Points? Sign in to use them on this order.</div>
