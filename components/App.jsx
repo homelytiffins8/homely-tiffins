@@ -3561,6 +3561,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         account={account}
         towers={TOWERS}
         canOrder={!!(kitchenOpen && menuAvailable)}
+        kitchenState={kitchenPause ? "paused" : !kitchenSwitchOn ? "closed" : !menuAvailable ? "nomenu" : "open"}
         onClose={() => setStep("home")}
         onOrderAgain={startReorder}
         onOpenPrefs={async () => {

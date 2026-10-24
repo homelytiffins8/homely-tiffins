@@ -352,7 +352,7 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose }) {
 // ─────────────────────────────────────────────
 // MY HOMELY (signed in)
 // ─────────────────────────────────────────────
-export function MyHomely({ supabase, account, towers = [], canOrder, onClose, onOrderAgain, onOpenPrefs, notif }) {
+export function MyHomely({ supabase, account, towers = [], canOrder, kitchenState = "open", onClose, onOrderAgain, onOpenPrefs, notif }) {
   const [view, setView] = useState("home");
   const [fav, setFav] = useState(null);
   const [ledger, setLedger] = useState(null);
@@ -384,107 +384,203 @@ export function MyHomely({ supabase, account, towers = [], canOrder, onClose, on
   const loy = account.rewards?.loyalty;
   const vouchers = (loy?.vouchers || []).filter(v => v.status === "available");
   const due = Number(ledger?.balance || 0);
-  const needsAddress = account.profile && (!p.name || !p.tower || !p.flat);
-
-  const rows = [
-    ["profile", "👤", "Profile", needsAddress ? "Add your delivery details" : [p.tower, p.flat && `Flat ${p.flat}`].filter(Boolean).join(" · ")],
-    ["orders", "🧾", "My Orders", !account.profile ? "…" : p.totalOrders ? `${p.totalOrders} order${p.totalOrders === 1 ? "" : "s"}` : "No orders yet"],
-    ["favourites", "❤️", "My Favourites", !fav ? "…" : fav.usualMeal ? `Usually ${fav.usualMeal.label}` : "Builds up as you order"],
-    ["rewards", "🎁", "Rewards", loy?.enabled ? `${loy.balance} Homely Points${vouchers.length ? ` · ${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""}` : ""}` : `Referral code ${p.referralCode || ""}`],
-    ["ledger", "📒", "Credit Ledger", ledger ? (due > 0 ? `${fmtINR(due)} due` : due < 0 ? `${fmtINR(-due)} advance` : "All settled") : "…"],
-  ];
+  const hasAddress = !!(p.tower && p.flat);
+  const ks = KITCHEN_STATE[kitchenState] || KITCHEN_STATE.closed;
+  const totalOrders = Number(p.totalOrders || 0);
 
   return (
-    <Shell onBack={onClose} backLabel="← Menu">
-      {/* Greeting */}
-      <div style={{ margin: "2px 0 14px" }}>
-        <h1 style={{ fontFamily: SERIF, fontSize: 28, fontWeight: 800, margin: 0 }}>
-          Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""} <span role="img" aria-label="wave">👋</span>
+    <div className="mh-dash" style={{ minHeight: "100vh", background: HC.cream, fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown, overflowX: "hidden" }}>
+      <style>{DASH_CSS}</style>
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "10px 16px 40px" }}>
+
+        {/* 1 · Header */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <button className="mh-tap mh-back" onClick={onClose} style={{ justifySelf: "start", display: "flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 6px 0 0", border: "none", background: "none", fontFamily: "inherit", fontSize: 15, fontWeight: 700, color: HC.brown, cursor: "pointer" }}>
+            <Icon name="arrowLeft" size={22} /> Menu
+          </button>
+          <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: 22, color: HC.brown, whiteSpace: "nowrap" }}>My Homely</div>
+          <div aria-label={p.name ? `Signed in as ${p.name}` : "Signed in"} role="img" style={{ justifySelf: "end", width: 44, height: 44, borderRadius: "50%", background: HC.peach, color: HC.brown, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, letterSpacing: 0.5 }}>
+            {initials(p.name) || <Icon name="user" size={20} />}
+          </div>
+        </div>
+
+        {/* 2 · Greeting */}
+        <h1 style={{ fontFamily: SERIF, fontSize: 34, lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "0 0 6px", overflowWrap: "anywhere" }}>
+          Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""}
         </h1>
-        <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 2 }}>
-          {[p.society, p.tower, p.flat && `Flat ${p.flat}`].filter(Boolean).join(" • ") || `+91 ${account.phone || ""}`}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Icon name="pin" size={20} color={HC.brownMid} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, color: hasAddress ? HC.brownMid : HC.orangeDeep, fontWeight: hasAddress ? 600 : 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {!account.profile ? "…" : hasAddress ? `${p.tower} · Flat ${p.flat}` : "Add your tower and flat"}
+          </span>
+          <button className="mh-tap" onClick={() => setView("profile")} style={{ minHeight: 44, minWidth: 44, padding: "0 4px", border: "none", background: "none", fontFamily: "inherit", fontSize: 15, fontWeight: 800, color: HC.orangeDeep, cursor: "pointer" }}>
+            {hasAddress ? "Edit" : "Add"}
+          </button>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 999, border: `1.5px solid ${ks.color}`, color: ks.color, background: ks.bg, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
+          <Icon name="store" size={18} /> {ks.badge}
+        </div>
+
+        {loadErr && <ErrorNote error={loadErr} onRetry={load} />}
+
+        {/* 3 · Your regular */}
+        <section className="mh-card" style={{ position: "relative", overflow: "hidden", background: "#FFFCF6", padding: "18px 16px 16px", marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "start" }}>
+            <div style={{ paddingTop: 4, minWidth: 0 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: HC.brownMid, letterSpacing: 2.2, textTransform: "uppercase" }}>
+                {fav?.regularIsPinned ? "My regular" : "Your regular"}
+              </div>
+              {!fav ? (
+                <div style={{ fontSize: 14, color: HC.brownMid, marginTop: 10 }}>{loadErr ? "Couldn't load your regular." : "Loading…"}</div>
+              ) : regular ? (
+                <>
+                  <div style={{ fontFamily: SERIF, fontSize: "clamp(20px, 5.8vw, 27px)", lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "8px 0 6px", overflowWrap: "anywhere" }}>
+                    {regular.items.map(i => `${mealTitle(i.name)}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}
+                  </div>
+                  <div style={{ fontSize: 15, color: HC.brownMid }}>
+                    {fav.regularIsPinned ? "Pinned by you" : fav.regularCount > 1 ? `Ordered ${fav.regularCount} times` : `Last ordered ${fmtD(regular.date)}`}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontFamily: SERIF, fontSize: 22, lineHeight: 1.2, fontWeight: 800, color: HC.brown, margin: "8px 0 6px" }}>Your usual, one tap away</div>
+                  <div style={{ fontSize: 14, color: HC.brownMid, lineHeight: 1.45 }}>Once you've ordered with us, your regular meal shows up here.</div>
+                </>
+              )}
+            </div>
+            {/* Anita Aunty — the app logo as a round badge, same ring as the home page logo */}
+            <img src="/logo.png" alt="" aria-hidden="true" style={{ display: "block", width: "clamp(84px, 27vw, 112px)", height: "auto", aspectRatio: "1 / 1", borderRadius: "50%", border: "2px solid #4A2C1F", objectFit: "cover" }} />
+          </div>
+          {fav && (regular ? (
+            canOrder
+              ? <button className="mh-tap" onClick={() => onOrderAgain(regular)} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>Order again</button>
+              : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
+          ) : (
+            canOrder
+              ? <button className="mh-tap" onClick={onClose} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>See today's menu</button>
+              : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
+          ))}
+        </section>
+
+        {/* 4 · Shortcuts */}
+        <div className="mh-shortcuts" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12, marginBottom: 14 }}>
+          <DashTile icon="receipt" title="My Orders" sub={!account.profile ? "…" : totalOrders ? `${totalOrders} order${totalOrders === 1 ? "" : "s"}` : "No orders yet"} onClick={() => setView("orders")} />
+          <DashTile icon="heart" title="Favourites" sub="Your saved meals" onClick={() => setView("favourites")} />
+        </div>
+
+        {/* 5 · Rewards */}
+        <DashRow icon="gift" onClick={() => setView("rewards")} style={{ background: "#FCEFD6", borderColor: "#F2DCB4" }} divider="#EBCF9F"
+          title="Homely Rewards"
+          value={!account.rewards ? "…" : loy?.enabled ? `${loy.balance} point${loy.balance === 1 ? "" : "s"}` : "Refer & earn"}
+          note={loy?.enabled && loy.balance > 0 ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : null}
+          sub={vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready · View rewards` : loy?.enabled ? "View points & rewards" : "View your referral code"} />
+
+        {/* 6 · Credit */}
+        <DashRow icon="wallet" onClick={() => setView("ledger")}
+          title={!ledger ? "Credit" : due > 0 ? "Amount due" : due < 0 ? "Advance with Homely" : "All settled"}
+          value={ledger ? fmtINR(Math.abs(due)) : loadErr ? "—" : "…"}
+          valueColor={due > 0 ? HC.orangeDeep : HC.green}
+          sub="View credit ledger" />
+
+        {/* 7 · Account */}
+        <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, color: HC.brown, margin: "22px 2px 12px" }}>Your account</h2>
+        <div className="mh-card" style={{ padding: 0, overflow: "hidden" }}>
+          <AccountRow first icon="user" title="Profile & address" sub="Delivery details and instructions" onClick={() => setView("profile")} />
+          {onOpenPrefs && <AccountRow icon="utensils" title="Food preferences" sub="Spice, oil, likes & dislikes" onClick={onOpenPrefs} />}
+          <AccountRow icon="logout" title="Log out" onClick={async () => { await account.signOut(); onClose(); }} />
         </div>
       </div>
+    </div>
+  );
+}
 
-      {loadErr && <ErrorNote error={loadErr} onRetry={load} />}
+// ── Dashboard pieces ──
+// What the kitchen-status badge and the disabled "Order again" button say.
+const KITCHEN_STATE = {
+  open: { badge: "Kitchen open", color: HC.green, bg: "#F1F8F1", wait: "" },
+  nomenu: { badge: "Menu coming soon", color: HC.orangeDeep, bg: "#FFF7EE", wait: "Ordering opens when today's menu is up" },
+  paused: { badge: "Kitchen on a short break", color: HC.orangeDeep, bg: "#FFF7EE", wait: "Ordering resumes after the short break" },
+  closed: { badge: "Kitchen closed", color: HC.orangeDeep, bg: "#FFF7EE", wait: "Ordering resumes when kitchen opens" },
+};
+const ctaStyle = {
+  display: "block", width: "100%", minHeight: 52, marginTop: 14, border: "none", borderRadius: 12, padding: "12px 16px",
+  fontFamily: "inherit", fontWeight: 700, fontSize: 16, cursor: "pointer",
+};
+const DASH_CSS = `
+  .mh-dash .mh-card { background: #FFFDF8; border: 1px solid #EEDFC8; border-radius: 18px; box-shadow: 0 1px 2px rgba(59,42,26,.04), 0 6px 18px rgba(59,42,26,.05); }
+  .mh-dash .mh-tap { -webkit-tap-highlight-color: transparent; transition: background-color .15s, transform .1s; }
+  .mh-dash .mh-tap:active { transform: scale(0.985); }
+  .mh-dash .mh-tap:focus-visible { outline: 3px solid ${HC.orange}; outline-offset: 2px; }
+  .mh-dash button.mh-card.mh-tap:hover, .mh-dash .mh-row:hover { filter: brightness(0.985); }
+  @media (max-width: 359px) { .mh-dash .mh-shortcuts { grid-template-columns: 1fr !important; } }
+`;
+const initials = (n) => (n || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
-      {needsAddress && (
-        <Card onClick={() => setView("profile")} style={{ background: "#FFF6EC", borderColor: HC.orange }}>
-          <div style={{ fontWeight: 800, fontSize: 14 }}>Add your delivery details</div>
-          <div style={{ fontSize: 12.5, color: HC.brownMid, marginTop: 2 }}>Save your tower and flat once — checkout fills itself after that.</div>
-        </Card>
-      )}
+// Outline icons (Lucide shapes), drawn inline so no icon library is needed.
+const ICONS = {
+  arrowLeft: <><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></>,
+  pin: <><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" /></>,
+  store: <><path d="M3 9.5 5 4h14l2 5.5" /><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" /><path d="M5 12.3V20h14v-7.7" /><path d="M10 20v-5h4v5" /></>,
+  receipt: <><path d="M6 2h12a1 1 0 0 1 1 1v18l-2.33-1.5L14.33 21 12 19.5 9.67 21l-2.34-1.5L5 21V3a1 1 0 0 1 1-1z" /><path d="M9 7h6M9 11h6M9 15h4" /></>,
+  heart: <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />,
+  gift: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></>,
+  wallet: <><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" /><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" /></>,
+  user: <><circle cx="12" cy="8" r="5" /><path d="M20 21a8 8 0 0 0-16 0" /></>,
+  utensils: <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /><path d="M7 2v20" /><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></>,
+  logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></>,
+  chevron: <path d="m9 18 6-6-6-6" />,
+};
+function Icon({ name, size = 24, color = "currentColor", stroke = 1.75 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, display: "block" }}>
+      {ICONS[name]}
+    </svg>
+  );
+}
+const tapReset = { width: "100%", textAlign: "left", fontFamily: "inherit", color: HC.brown, cursor: "pointer" };
 
-      {/* Your regular */}
-      {regular && (
-        <Card style={{ background: "#fff", borderStyle: "dashed" }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 1, textTransform: "uppercase" }}>
-            {fav.regularIsPinned ? "My Regular" : "Your Regular"}
-          </div>
-          <div style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 800, margin: "4px 0 2px" }}>
-            {regular.items.map(i => `${mealTitle(i.name)}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}
-          </div>
-          <div style={{ fontSize: 12, color: HC.brownMid, marginBottom: 12 }}>
-            {fav.regularIsPinned ? "Pinned by you" : fav.regularCount > 1 ? `Ordered ${fav.regularCount} times` : `Last ordered ${fmtD(regular.date)}`}
-          </div>
-          <PrimaryBtn onClick={() => onOrderAgain(regular)} disabled={!canOrder}>{canOrder ? "Order Again" : "Kitchen closed right now"}</PrimaryBtn>
-        </Card>
-      )}
+function DashTile({ icon, title, sub, onClick }) {
+  return (
+    <button className="mh-card mh-tap" onClick={onClick} style={{ ...tapReset, display: "flex", alignItems: "center", gap: 8, minHeight: 76, padding: "14px 10px 14px 12px" }}>
+      <Icon name={icon} size={26} color={HC.orangeDeep} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontFamily: SERIF, fontWeight: 800, fontSize: 17, color: HC.brown, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+        <span style={{ display: "block", fontSize: 13, color: HC.brownMid, marginTop: 2, lineHeight: 1.3 }}>{sub}</span>
+      </span>
+      <Icon name="chevron" size={20} color={HC.orangeDeep} stroke={2} />
+    </button>
+  );
+}
 
-      {/* Rewards + balance strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-        <Card onClick={() => setView("rewards")} style={{ marginBottom: 0, padding: 14 }}>
-          <div style={{ fontSize: 11, color: HC.brownMid, fontWeight: 700 }}>Rewards</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: HC.orangeDeep }}>
-            {loy?.enabled ? `${loy.balance} pts` : "Refer & earn"}
-          </div>
-          <div style={{ fontSize: 11, color: HC.brownMid }}>
-            {vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready` : loy?.enabled && loy.balance ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : "View code"}
-          </div>
-        </Card>
-        <Card onClick={() => setView("ledger")} style={{ marginBottom: 0, padding: 14 }}>
-          <div style={{ fontSize: 11, color: HC.brownMid, fontWeight: 700 }}>Credit</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: due > 0 ? HC.red : HC.green }}>
-            {ledger ? fmtINR(Math.abs(due)) : "—"}
-          </div>
-          <div style={{ fontSize: 11, color: HC.brownMid }}>{ledger ? (due > 0 ? "Amount due" : due < 0 ? "Advance" : "All settled") : ""}</div>
-        </Card>
-      </div>
+function DashRow({ icon, title, value, valueColor = HC.orangeDeep, note, sub, onClick, style, divider = "#EEDFC8" }) {
+  return (
+    <button className="mh-card mh-tap" onClick={onClick} style={{ ...tapReset, display: "flex", alignItems: "center", gap: 14, padding: "16px 14px 16px 16px", marginBottom: 14, ...style }}>
+      <span style={{ display: "flex", alignItems: "center", alignSelf: "stretch", paddingRight: 14, borderRight: `1px solid ${divider}` }}>
+        <Icon name={icon} size={32} color={icon === "gift" ? HC.orange : HC.brown} stroke={1.6} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontFamily: SERIF, fontWeight: 800, fontSize: 19, color: HC.brown, lineHeight: 1.2 }}>{title}</span>
+        <span style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: 8, margin: "2px 0" }}>
+          <span style={{ fontWeight: 800, fontSize: 27, lineHeight: 1.2, color: valueColor }}>{value}</span>
+          {note && <span style={{ fontSize: 13, color: HC.brownMid, fontWeight: 600 }}>{note}</span>}
+        </span>
+        <span style={{ display: "block", fontSize: 14, color: HC.brownMid }}>{sub}</span>
+      </span>
+      <Icon name="chevron" size={22} color={HC.orangeDeep} stroke={2} />
+    </button>
+  );
+}
 
-      {/* Sections */}
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        {rows.map(([id, ic, label, sub], i) => (
-          <button key={id} onClick={() => setView(id)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", border: "none",
-            borderTop: i ? `1px solid ${HC.peach}` : "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: HC.brown,
-          }}>
-            <span style={{ fontSize: 20, width: 26, textAlign: "center" }}>{ic}</span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontWeight: 800, fontSize: 15 }}>{label}</span>
-              {sub && <span style={{ display: "block", fontSize: 12, color: HC.brownMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
-            </span>
-            <span style={{ color: HC.brownSoft, fontSize: 18 }}>›</span>
-          </button>
-        ))}
-        {onOpenPrefs && (
-          <button onClick={onOpenPrefs} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", border: "none",
-            borderTop: `1px solid ${HC.peach}`, background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: HC.brown,
-          }}>
-            <span style={{ fontSize: 20, width: 26, textAlign: "center" }}>🌶️</span>
-            <span style={{ flex: 1 }}>
-              <span style={{ display: "block", fontWeight: 800, fontSize: 15 }}>Food preferences</span>
-              <span style={{ display: "block", fontSize: 12, color: HC.brownMid }}>Spice, oil, likes &amp; dislikes</span>
-            </span>
-            <span style={{ color: HC.brownSoft, fontSize: 18 }}>›</span>
-          </button>
-        )}
-      </Card>
-
-      <div style={{ textAlign: "center", marginTop: 18 }}>
-        <LinkBtn onClick={async () => { await account.signOut(); onClose(); }} style={{ color: HC.brownMid }}>Log out</LinkBtn>
-      </div>
-    </Shell>
+function AccountRow({ first, icon, title, sub, onClick }) {
+  return (
+    <button className="mh-tap mh-row" onClick={onClick} style={{ ...tapReset, display: "flex", alignItems: "center", gap: 16, minHeight: 64, padding: "12px 16px 12px 18px", border: "none", borderTop: first ? "none" : "1px solid #F1E5D3", background: "transparent" }}>
+      <Icon name={icon} size={26} color={HC.brown} stroke={1.6} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontFamily: SERIF, fontWeight: 800, fontSize: 18, color: HC.brown, lineHeight: 1.25 }}>{title}</span>
+        {sub && <span style={{ display: "block", fontSize: 14, color: HC.brownMid, marginTop: 2 }}>{sub}</span>}
+      </span>
+      <Icon name="chevron" size={20} color={HC.orangeDeep} stroke={2} />
+    </button>
   );
 }
 
