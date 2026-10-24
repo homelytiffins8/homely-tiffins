@@ -439,7 +439,7 @@ export function MyHomely({ supabase, account, towers = [], canOrder, onClose, on
             {loy?.enabled ? `${loy.balance} pts` : "Refer & earn"}
           </div>
           <div style={{ fontSize: 11, color: HC.brownMid }}>
-            {vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready` : loy?.enabled && loy.balance ? `≈ ${fmtINR(loy.balance * loy.pointValue)}` : "View code"}
+            {vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready` : loy?.enabled && loy.balance ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : "View code"}
           </div>
         </Card>
         <Card onClick={() => setView("ledger")} style={{ marginBottom: 0, padding: 14 }}>
@@ -761,7 +761,7 @@ function RewardsView({ rewards, onBack }) {
           <div style={{ fontSize: 11, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 1, textTransform: "uppercase" }}>Homely Points</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0" }}>
             <span style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 800 }}>{loy.balance}</span>
-            <span style={{ fontSize: 13, color: HC.brownMid }}>points ≈ {fmtINR(loy.balance * loy.pointValue)}</span>
+            <span style={{ fontSize: 13, color: HC.brownMid }}>points ≈ {fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}</span>
           </div>
           <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.55 }}>
             {earnText && <>You earn {earnText}. </>}

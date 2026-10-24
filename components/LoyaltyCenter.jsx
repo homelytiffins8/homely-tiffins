@@ -126,7 +126,7 @@ export function LoyaltyCenter({ supabase, C = DEFAULT_C }) {
         </div>
         {!cfg.enabled && (
           <div style={{ background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 12, color: C.inkMid, marginBottom: 12 }}>
-            Switched off — no points are earned or used, and customers don't see Homely Points. Balances are kept for when you switch it back on.
+            Switched off — no points are earned or used, orders delivered now don't count toward milestones, and customers don't see Homely Points. Balances are kept for when you switch it back on.
           </div>
         )}
 
