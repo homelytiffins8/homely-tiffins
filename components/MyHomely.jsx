@@ -854,7 +854,7 @@ function RewardsView({ rewards, onBack, onOrder }) {
   const howSteps = [
     {
       title: "Order and earn",
-      sub: <>{earnText ? `Get ${earnText}` : "Get points on your delivered orders"}{loy.minOrder > 0 ? ` of ${fmtINR(loy.minOrder)} or more` : ""}.</>,
+      sub: <>{earnText ? `Get ${earnText}` : "Get points on your delivered orders"}.{loy.minOrder > 0 ? ` Orders of ${fmtINR(loy.minOrder)} or more count.` : ""}</>,
     },
     minRedeem > 0 && {
       title: `Collect ${minRedeem} points`,
