@@ -175,17 +175,58 @@ function Pill({ children, tone = "neutral" }) {
   const t = { neutral: [HC.peach, HC.brown], green: [HC.greenBg, HC.green], red: [HC.redBg, HC.red], orange: ["#FFF1E3", HC.orangeDeep] }[tone] || [HC.peach, HC.brown];
   return <span style={{ background: t[0], color: t[1], borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}>{children}</span>;
 }
-function Shell({ title, onBack, backLabel = "← Back", children }) {
+// wide (laptop): 1000px page, bigger title; with `side`, the My Homely side panel sits on the left.
+function Shell({ title, onBack, backLabel = "← Back", children, wide = false, side = null }) {
   return (
     <div style={{ minHeight: "100vh", background: HC.cream, fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown }}>
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "16px 16px 40px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      <div style={{ maxWidth: wide ? 1000 : 480, margin: "0 auto", padding: wide ? "22px 16px 48px" : "16px 16px 40px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: wide ? 14 : 10, marginBottom: wide ? 22 : 14 }}>
           <button onClick={onBack} style={{ border: `1.5px solid ${HC.dash}`, background: "#fff", borderRadius: 10, padding: "7px 12px", fontFamily: "inherit", fontWeight: 800, fontSize: 13, color: HC.brown, cursor: "pointer" }}>{backLabel}</button>
-          {title && <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: 18, color: HC.brown }}>{title}</div>}
+          {title && <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: wide ? 30 : 18, color: HC.brown }}>{title}</div>}
         </div>
-        {children}
+        {wide && side ? (
+          <div style={{ display: "grid", gridTemplateColumns: "270px minmax(0, 1fr)", gap: 26, alignItems: "start" }}>
+            {side}
+            <div style={{ minWidth: 0 }}>{children}</div>
+          </div>
+        ) : children}
       </div>
     </div>
+  );
+}
+
+// Laptop: the My Homely side panel shown on every sub-page, current page highlighted.
+function SideNav({ account, current, go, onOpenPrefs, onLogout }) {
+  const p = account.profile || {};
+  const item = (key, icon, label, onClick, sep) => (
+    <button key={key} className="mh-tap" onClick={onClick} aria-current={current === key ? "page" : undefined} style={{
+      display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "11px 18px", border: "none",
+      borderTop: `1px solid ${sep ? "#F1E5D3" : "#F6ECDD"}`, background: current === key ? HC.peach : "transparent",
+      color: current === key ? HC.orangeDeep : HC.brown, fontFamily: "inherit", fontSize: 15, fontWeight: current === key ? 800 : 700, cursor: "pointer",
+    }}>
+      <Icon name={icon} size={20} color={current === key ? HC.orangeDeep : HC.brown} stroke={1.8} /> {label}
+    </button>
+  );
+  return (
+    <aside className="mh-card" style={{ position: "sticky", top: 16, padding: "20px 0 6px", overflow: "hidden", background: "#FFFDF8", border: "1px solid #EEDFC8", borderRadius: 18, boxShadow: "0 1px 2px rgba(59,42,26,.04), 0 6px 18px rgba(59,42,26,.05)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 18px 16px" }}>
+        <div aria-hidden="true" style={{ width: 52, height: 52, borderRadius: "50%", background: HC.peach, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: SERIF, fontWeight: 800, fontSize: 19, flexShrink: 0 }}>
+          {initials(p.name) || <Icon name="user" size={22} />}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 800, overflowWrap: "anywhere" }}>Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""}</div>
+          {p.tower && p.flat && <div style={{ fontSize: 13, color: HC.brownMid }}>{p.tower} · Flat {p.flat}</div>}
+        </div>
+      </div>
+      {item("home", "store", "My Homely", () => go("home"), true)}
+      {item("orders", "receipt", "My Orders", () => go("orders"))}
+      {item("favourites", "heart", "Favourites", () => go("favourites"))}
+      {item("rewards", "gift", "Rewards", () => go("rewards"))}
+      {item("ledger", "wallet", "Credit ledger", () => go("ledger"))}
+      {item("profile", "user", "Profile & address", () => go("profile"), true)}
+      {onOpenPrefs && item("prefs", "utensils", "Food preferences", onOpenPrefs)}
+      {item("logout", "logout", "Log out", onLogout)}
+    </aside>
   );
 }
 
@@ -197,7 +238,8 @@ const inputStyle = {
 // ─────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────
-export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← Menu" }) {
+// wide (laptop): one card — logo and what My Homely offers on the left, the form on the right.
+export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← Menu", wide = false }) {
   const [step, setStep] = useState("phone"); // phone | otp | password
   const [phoneInput, setPhoneInput] = useState("");
   const [password, setPassword] = useState("");
@@ -267,15 +309,8 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← 
     onSignedIn();
   };
 
-  return (
-    <Shell onBack={onClose} backLabel={backLabel}>
-      <div style={{ textAlign: "center", margin: "8px 0 18px" }}>
-        <img src="/logo.png" alt="" style={{ width: 64, height: 64, borderRadius: "50%", border: `2px solid ${HC.brown}`, objectFit: "cover" }} />
-        <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, margin: "10px 0 2px" }}>My Homely</h1>
-        <div style={{ fontSize: 13, color: HC.brownMid }}>Your orders, favourites and rewards in one place</div>
-      </div>
-
-      <Card style={{ padding: 20 }}>
+  const form = (
+      <>
         {error && <ErrorNote error={error} />}
         {info && <div style={{ background: HC.greenBg, color: HC.green, borderRadius: 10, padding: "10px 12px", fontSize: 13, marginBottom: 12 }}>{info}</div>}
 
@@ -341,10 +376,63 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← 
             </div>
           </>
         )}
-      </Card>
-      <div style={{ fontSize: 11.5, color: HC.brownSoft, textAlign: "center", lineHeight: 1.5 }}>
-        Use the same number you order with — your past orders show up automatically.
+      </>
+  );
+  const finePrint = (
+    <div style={{ fontSize: 11.5, color: HC.brownSoft, textAlign: "center", lineHeight: 1.5 }}>
+      Use the same number you order with — your past orders show up automatically.
+    </div>
+  );
+
+  if (wide) {
+    const benefits = [
+      ["receipt", "Your regular, one tap away", "Order the meal you always get again in one tap."],
+      ["heart", "Favourites, worked out for you", "Your top sabjis and sides, from what you order."],
+      ["gift", "Homely Points and free meals", "Earn on every delivered order, spend at checkout."],
+    ];
+    return (
+      <Shell onBack={onClose} backLabel={backLabel} wide>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 1fr)", background: "#FFFDF8", border: "1px solid #EEDFC8", borderRadius: 24, overflow: "hidden", boxShadow: "0 6px 18px rgba(59,42,26,.06)" }}>
+          <div style={{ background: HC.peach, padding: "44px 44px 40px" }}>
+            <img src="/logo.png" alt="" style={{ display: "block", width: 104, height: 104, borderRadius: "50%", border: `2px solid ${HC.brown}`, objectFit: "cover" }} />
+            <h1 style={{ fontFamily: SERIF, fontSize: 40, fontWeight: 800, margin: "16px 0 4px", lineHeight: 1.1 }}>My Homely</h1>
+            <div style={{ fontSize: 16, color: HC.brownMid }}>Your orders, favourites and rewards in one place</div>
+            <div style={{ display: "grid", gap: 26, marginTop: 34, paddingTop: 28, borderTop: "1px solid #EBCF9F" }}>
+              {benefits.map(([icon, title, sub]) => (
+                <div key={title} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                  <span style={{ width: 44, height: 44, borderRadius: "50%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon name={icon} size={22} color={HC.orangeDeep} />
+                  </span>
+                  <span>
+                    <span style={{ display: "block", fontFamily: SERIF, fontSize: 17, fontWeight: 800, lineHeight: 1.3, marginBottom: 4 }}>{title}</span>
+                    <span style={{ display: "block", fontSize: 13.5, color: HC.brownMid, lineHeight: 1.5 }}>{sub}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: "44px 44px 36px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, margin: "0 0 16px" }}>
+              {step === "otp" ? "Enter the code" : step === "password" ? "Set a password" : "Log in"}
+            </h2>
+            <div style={{ marginBottom: 18 }}>{form}</div>
+            {finePrint}
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell onBack={onClose} backLabel={backLabel}>
+      <div style={{ textAlign: "center", margin: "8px 0 18px" }}>
+        <img src="/logo.png" alt="" style={{ width: 64, height: 64, borderRadius: "50%", border: `2px solid ${HC.brown}`, objectFit: "cover" }} />
+        <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, margin: "10px 0 2px" }}>My Homely</h1>
+        <div style={{ fontSize: 13, color: HC.brownMid }}>Your orders, favourites and rewards in one place</div>
       </div>
+
+      <Card style={{ padding: 20 }}>{form}</Card>
+      {finePrint}
     </Shell>
   );
 }
@@ -376,11 +464,17 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
   const p = account.profile || {};
   const back = () => setView("home");
 
-  if (view === "profile") return <ProfileView supabase={supabase} account={account} towers={towers} notif={notif} onBack={back} />;
-  if (view === "orders") return <OrdersView supabase={supabase} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} onRegularChanged={load} regularId={p.regularOrderId} />;
-  if (view === "favourites") return <FavouritesView fav={fav} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} />;
-  if (view === "rewards") return <RewardsView rewards={account.rewards} onBack={back} onOrder={canOrder ? onClose : null} />;
-  if (view === "ledger") return <LedgerView ledger={ledger} onBack={back} />;
+  // Laptop: every sub-page gets the side panel and a "← My Homely" back button
+  const logout = async () => { await account.signOut(); onClose(); };
+  const sub = (current) => wide
+    ? { wide: true, backLabel: "← My Homely", side: <SideNav account={account} current={current} go={setView} onOpenPrefs={onOpenPrefs} onLogout={logout} /> }
+    : {};
+
+  if (view === "profile") return <ProfileView supabase={supabase} account={account} towers={towers} notif={notif} onBack={back} {...sub("profile")} />;
+  if (view === "orders") return <OrdersView supabase={supabase} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} onRegularChanged={load} regularId={p.regularOrderId} {...sub("orders")} />;
+  if (view === "favourites") return <FavouritesView fav={fav} canOrder={canOrder} onOrderAgain={onOrderAgain} onBack={back} {...sub("favourites")} />;
+  if (view === "rewards") return <RewardsView rewards={account.rewards} onBack={back} onOrder={canOrder ? onClose : null} {...sub("rewards")} />;
+  if (view === "ledger") return <LedgerView ledger={ledger} onBack={back} {...sub("ledger")} />;
 
   const regular = fav?.regular;
   const loy = account.rewards?.loyalty;
@@ -457,7 +551,7 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
     <>
       <AccountRow first icon="user" title="Profile & address" sub="Delivery details and instructions" onClick={() => setView("profile")} />
       {onOpenPrefs && <AccountRow icon="utensils" title="Food preferences" sub="Spice, oil, likes & dislikes" onClick={onOpenPrefs} />}
-      <AccountRow icon="logout" title="Log out" onClick={async () => { await account.signOut(); onClose(); }} />
+      <AccountRow icon="logout" title="Log out" onClick={logout} />
     </>
   );
 
@@ -650,7 +744,7 @@ function AccountRow({ first, icon, title, sub, onClick }) {
 }
 
 // ── Profile ──
-function ProfileView({ supabase, account, towers, notif, onBack }) {
+function ProfileView({ supabase, account, towers, notif, onBack, wide = false, backLabel, side }) {
   const p = account.profile || {};
   const [form, setForm] = useState({ name: p.name || "", tower: p.tower || "", flat: p.flat || "", instr: p.deliveryInstructions || "" });
   const [busy, setBusy] = useState(false);
@@ -676,16 +770,18 @@ function ProfileView({ supabase, account, towers, notif, onBack }) {
   const towerOptions = towers.includes(form.tower) || !form.tower ? towers : [form.tower, ...towers];
 
   return (
-    <Shell title="Profile" onBack={onBack}>
-      <Card style={{ padding: 20 }}>
+    <Shell title="Profile" onBack={onBack} backLabel={backLabel} wide={wide} side={side}>
+      <Card style={{ padding: wide ? 24 : 20 }}>
         {error && <ErrorNote error={error} />}
+        <div style={wide ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" } : undefined}>
         <Field label="Name">
           <input style={inputStyle} value={form.name} onChange={set("name")} placeholder="Your name" maxLength={80} />
         </Field>
         <Field label="Phone number" hint="Verified with OTP — this is your login, so it can't be changed here.">
           <input style={{ ...inputStyle, background: HC.peach, color: HC.brownMid }} value={`+91 ${account.phone || ""}  ✓`} readOnly />
         </Field>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: wide ? 16 : 10 }}>
           <Field label="Tower">
             <select style={inputStyle} value={form.tower} onChange={set("tower")}>
               <option value="">Select</option>
@@ -701,8 +797,10 @@ function ProfileView({ supabase, account, towers, notif, onBack }) {
           <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70 }} value={form.instr} onChange={set("instr")}
             placeholder="e.g. Leave with the guard, don't ring the bell" maxLength={300} />
         </Field>
-        <PrimaryBtn onClick={save} disabled={busy}>{busy ? "Saving…" : saved ? "Saved ✓" : "Save"}</PrimaryBtn>
-        <div style={{ fontSize: 11, color: HC.brownSoft, marginTop: 8, textAlign: "center" }}>Past orders keep the address they were delivered to.</div>
+        <div style={wide ? { display: "flex", alignItems: "center", gap: 16 } : undefined}>
+          <PrimaryBtn onClick={save} disabled={busy} style={wide ? { width: 220, flexShrink: 0 } : undefined}>{busy ? "Saving…" : saved ? "Saved ✓" : "Save"}</PrimaryBtn>
+          <div style={{ fontSize: 11, color: HC.brownSoft, marginTop: wide ? 0 : 8, textAlign: wide ? "left" : "center" }}>Past orders keep the address they were delivered to.</div>
+        </div>
       </Card>
 
       {notif && (
@@ -750,7 +848,7 @@ function OrderSummary({ o }) {
   );
 }
 
-function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged, regularId }) {
+function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged, regularId, wide = false, backLabel, side }) {
   const [orders, setOrders] = useState(null);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
@@ -777,12 +875,15 @@ function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged
   };
 
   return (
-    <Shell title="My Orders" onBack={onBack}>
+    <Shell title="My Orders" onBack={onBack} backLabel={backLabel} wide={wide} side={side}>
       {error && <ErrorNote error={error} />}
       {!orders ? <Busy /> : orders.length === 0 ? (
         <Card><div style={{ fontSize: 14, color: HC.brownMid }}>No orders yet — your orders will show up here.</div></Card>
-      ) : orders.map(o => (
-        <Card key={o.id} style={{ background: "#fff" }}>
+      ) : (
+        // Laptop: two orders per row
+        <div style={wide ? { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14, marginBottom: 14 } : undefined}>
+        {orders.map(o => (
+        <Card key={o.id} style={wide ? { background: "#fff", marginBottom: 0, display: "flex", flexDirection: "column" } : { background: "#fff" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
             <div>
               <div style={{ fontWeight: 800, fontSize: 14 }}>{fmtD(o.date || o.createdAt)}</div>
@@ -790,8 +891,8 @@ function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged
             </div>
             <Pill tone={o.status === "delivered" ? "green" : o.status === "rejected" ? "red" : "orange"}>{STATUS_LABEL[o.status] || o.status}</Pill>
           </div>
-          <OrderSummary o={o} />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px dashed ${HC.dash}`, marginTop: 8, paddingTop: 10, gap: 8 }}>
+          {wide ? <div style={{ flex: 1, marginBottom: 8 }}><OrderSummary o={o} /></div> : <OrderSummary o={o} />}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px dashed ${HC.dash}`, marginTop: wide ? 0 : 8, paddingTop: 10, gap: 8 }}>
             <div style={{ fontWeight: 800, fontSize: 16, color: HC.orangeDeep }}>{fmtINR(o.total)}</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {o.status === "delivered" && (pinned === o.id
@@ -802,6 +903,8 @@ function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged
           </div>
         </Card>
       ))}
+        </div>
+      )}
       {orders && more && <SmallBtn tone="plain" onClick={loadMore} disabled={busyMore} style={{ width: "100%" }}>{busyMore ? "Loading…" : "Show older orders"}</SmallBtn>}
       {!canOrder && orders && orders.length > 0 && <div style={{ fontSize: 12, color: HC.brownMid, textAlign: "center", marginTop: 10 }}>Order Again works while the kitchen is open and today's menu is up.</div>}
     </Shell>
@@ -809,12 +912,20 @@ function OrdersView({ supabase, canOrder, onOrderAgain, onBack, onRegularChanged
 }
 
 // ── Favourites ──
-function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
-  if (!fav) return <Shell title="My Favourites" onBack={onBack}><Busy /></Shell>;
+// wide (laptop): most-ordered meal and your regular in one column; sabjis, sides and routine in the other.
+function FavouritesView({ fav, canOrder, onOrderAgain, onBack, wide = false, backLabel, side }) {
+  if (!fav) return <Shell title="My Favourites" onBack={onBack} backLabel={backLabel} wide={wide} side={side}><Busy /></Shell>;
   const empty = !fav.deliveredOrders;
   const maxMeal = Math.max(1, ...(fav.meals || []).map(m => m.count));
+  const regularCard = fav.regular && (
+    <Card style={{ background: "#fff", borderStyle: "dashed" }}>
+      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>{fav.regularIsPinned ? "My Regular" : "Your usual combination"}</div>
+      <OrderSummary o={{ ...fav.regular, discount: 0 }} />
+      <PrimaryBtn onClick={() => onOrderAgain(fav.regular)} disabled={!canOrder} style={{ marginTop: 10 }}>{canOrder ? "Order Again" : "Kitchen closed right now"}</PrimaryBtn>
+    </Card>
+  );
   return (
-    <Shell title="My Favourites" onBack={onBack}>
+    <Shell title="My Favourites" onBack={onBack} backLabel={backLabel} wide={wide} side={side}>
       <div style={{ fontSize: 12.5, color: HC.brownMid, marginBottom: 12 }}>
         Worked out from your delivered orders — updates automatically as you order.
       </div>
@@ -822,10 +933,12 @@ function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
         <Card><div style={{ fontSize: 14, color: HC.brownMid }}>Your favourites appear here after your first delivered order.</div></Card>
       ) : (
         <>
+          <div style={wide ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16, alignItems: "start" } : undefined}>
+          <div>
           {fav.usualMeal && (
             <Card style={{ background: "#fff" }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 1, textTransform: "uppercase" }}>Most ordered meal</div>
-              <div style={{ fontFamily: SERIF, fontSize: 21, fontWeight: 800, margin: "4px 0" }}>{fav.usualMeal.label}</div>
+              <div style={{ fontFamily: SERIF, fontSize: wide ? 26 : 21, fontWeight: 800, margin: "4px 0" }}>{fav.usualMeal.label}</div>
               <div style={{ fontSize: 12, color: HC.brownMid }}>{fav.usualMeal.count} of {fav.deliveredOrders} orders</div>
               {(fav.meals || []).length > 1 && (
                 <div style={{ marginTop: 12 }}>
@@ -842,6 +955,9 @@ function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
               )}
             </Card>
           )}
+          {wide && regularCard}
+          </div>
+          <div>
 
           {(fav.topSabjis || []).length > 0 && (
             <Card>
@@ -876,13 +992,9 @@ function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
             </Card>
           )}
 
-          {fav.regular && (
-            <Card style={{ background: "#fff", borderStyle: "dashed" }}>
-              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>{fav.regularIsPinned ? "My Regular" : "Your usual combination"}</div>
-              <OrderSummary o={{ ...fav.regular, discount: 0 }} />
-              <PrimaryBtn onClick={() => onOrderAgain(fav.regular)} disabled={!canOrder} style={{ marginTop: 10 }}>{canOrder ? "Order Again" : "Kitchen closed right now"}</PrimaryBtn>
-            </Card>
-          )}
+          {!wide && regularCard}
+          </div>
+          </div>
         </>
       )}
     </Shell>
@@ -890,9 +1002,10 @@ function FavouritesView({ fav, canOrder, onOrderAgain, onBack }) {
 }
 
 // ── Rewards ──
-function RewardsView({ rewards, onBack, onOrder }) {
+// wide (laptop): points and how-to in one column; free meals, referral and history in the other.
+function RewardsView({ rewards, onBack, onOrder, wide = false, backLabel, side }) {
   const [copied, setCopied] = useState(false);
-  if (!rewards) return <Shell title="Rewards" onBack={onBack}><Busy /></Shell>;
+  if (!rewards) return <Shell title="Rewards" onBack={onBack} backLabel={backLabel} wide={wide} side={side}><Busy /></Shell>;
   const ref = rewards.referral || {};
   const loy = rewards.loyalty || {};
   const code = rewards.referralCode;
@@ -948,9 +1061,12 @@ function RewardsView({ rewards, onBack, onOrder }) {
       ),
     },
   ].filter(Boolean);
+  const twoCol = wide && loy.enabled;
 
   return (
-    <Shell title="Rewards" onBack={onBack}>
+    <Shell title="Rewards" onBack={onBack} backLabel={backLabel} wide={wide} side={side}>
+      <div style={twoCol ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16, alignItems: "start" } : undefined}>
+      <div>
       {/* Loyalty */}
       {loy.enabled && (
         <Card style={{ background: "#fff" }}>
@@ -987,6 +1103,8 @@ function RewardsView({ rewards, onBack, onOrder }) {
           )}
         </Card>
       )}
+      </div>
+      <div>
 
       {vouchers.length > 0 && (
         <Card>
@@ -1037,33 +1155,49 @@ function RewardsView({ rewards, onBack, onOrder }) {
           ))}
         </Card>
       )}
+      </div>
+      </div>
     </Shell>
   );
 }
 
 // ── Credit ledger ──
-function LedgerView({ ledger, onBack }) {
-  if (!ledger) return <Shell title="Credit Ledger" onBack={onBack}><Busy /></Shell>;
+// wide (laptop): the balance as a wide strip; entries as a table (date | details | amount).
+function LedgerView({ ledger, onBack, wide = false, backLabel, side }) {
+  if (!ledger) return <Shell title="Credit Ledger" onBack={onBack} backLabel={backLabel} wide={wide} side={side}><Busy /></Shell>;
   const bal = Number(ledger.balance || 0);
+  const cols = { display: "grid", gridTemplateColumns: "90px minmax(0, 1fr) 100px", gap: 16 };
   return (
-    <Shell title="Credit Ledger" onBack={onBack}>
-      <Card style={{ background: "#fff", textAlign: "center" }}>
-        <div style={{ fontSize: 12, color: HC.brownMid, fontWeight: 700 }}>{bal > 0 ? "Amount due" : bal < 0 ? "Advance with Homely" : "Balance"}</div>
-        <div style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 800, color: bal > 0 ? HC.red : HC.green }}>{fmtINR(Math.abs(bal))}</div>
-        <div style={{ fontSize: 12, color: HC.brownMid }}>{bal > 0 ? "Please pay Homely when convenient" : bal < 0 ? "Will be adjusted against your next orders" : "All settled — thank you!"}</div>
+    <Shell title="Credit Ledger" onBack={onBack} backLabel={backLabel} wide={wide} side={side}>
+      <Card style={wide
+        ? { background: "#fff", display: "flex", alignItems: "center", gap: 22, padding: "22px 26px" }
+        : { background: "#fff", textAlign: "center" }}>
+        <div>
+          <div style={{ fontSize: 12, color: HC.brownMid, fontWeight: 700 }}>{bal > 0 ? "Amount due" : bal < 0 ? "Advance with Homely" : "Balance"}</div>
+          <div style={{ fontFamily: SERIF, fontSize: wide ? 40 : 34, fontWeight: 800, color: bal > 0 ? HC.red : HC.green }}>{fmtINR(Math.abs(bal))}</div>
+        </div>
+        <div style={{ fontSize: wide ? 14 : 12, color: HC.brownMid, marginLeft: wide ? "auto" : undefined }}>{bal > 0 ? "Please pay Homely when convenient" : bal < 0 ? "Will be adjusted against your next orders" : "All settled — thank you!"}</div>
       </Card>
       {(ledger.entries || []).length === 0 ? (
         <Card><div style={{ fontSize: 14, color: HC.brownMid }}>No entries yet.</div></Card>
       ) : (
-        <Card style={{ padding: "6px 16px" }}>
+        <Card style={{ padding: wide ? "6px 22px" : "6px 16px" }}>
+          {wide && (
+            <div style={{ ...cols, padding: "12px 0 8px", fontSize: 11.5, fontWeight: 800, color: HC.brownSoft, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #F1E5D3" }}>
+              <span>Date</span><span>Details</span><span style={{ textAlign: "right" }}>Amount</span>
+            </div>
+          )}
           {ledger.entries.map((e, i) => (
-            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: i ? `1px solid ${HC.peach}` : "none" }}>
+            <div key={e.id} style={wide
+              ? { ...cols, alignItems: "start", padding: "13px 0", borderTop: i ? `1px solid ${HC.peach}` : "none" }
+              : { display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: i ? `1px solid ${HC.peach}` : "none" }}>
+              {wide && <div style={{ fontSize: 13, color: HC.brownMid, fontWeight: 700 }}>{fmtD(e.date)}</div>}
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e.note || (e.type === "debit" ? "Order" : "Payment")}</div>
                 {e.orderDetails && <div style={{ fontSize: 11.5, color: HC.brownMid, lineHeight: 1.35 }}>{e.orderDetails}</div>}
-                <div style={{ fontSize: 11, color: HC.brownSoft }}>{fmtD(e.date)}</div>
+                {!wide && <div style={{ fontSize: 11, color: HC.brownSoft }}>{fmtD(e.date)}</div>}
               </div>
-              <div style={{ fontWeight: 800, whiteSpace: "nowrap", color: e.type === "debit" ? HC.brown : HC.green }}>
+              <div style={{ fontWeight: 800, whiteSpace: "nowrap", textAlign: wide ? "right" : undefined, fontSize: wide ? 15 : undefined, color: e.type === "debit" ? HC.brown : HC.green }}>
                 {e.type === "debit" ? "" : "+"}{fmtINR(e.amount)}
               </div>
             </div>

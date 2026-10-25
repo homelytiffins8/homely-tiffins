@@ -1688,7 +1688,7 @@ export function AcquisitionSourcePrompt({ supabase, C = DEFAULT_C, orderId, onSt
   };
 
   return (
-    <div className="modal-backdrop" data-testid="acq-prompt">
+    <div className="modal-backdrop ht-center" data-testid="acq-prompt">
       <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="acq-title" style={{ padding: "18px 18px 22px" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 14px" }} />
         {thanks ? (

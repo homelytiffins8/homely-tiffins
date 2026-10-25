@@ -1239,6 +1239,11 @@ const GlobalStyle = () => (
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     .modal-sheet { background: ${C.white}; border-radius: 20px 20px 0 0; width: 100%; max-width: 520px; padding: 28px 24px 36px; animation: slideUp 0.28s ease; max-height: 92vh; overflow-y: auto; }
     @keyframes slideUp { from { transform: translateY(60px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+    /* Customer pop-ups (ht-center) open in the middle of the screen on laptops, same breakpoint as isDesktop */
+    @media (min-width: 768px) {
+      .modal-backdrop.ht-center { align-items: center; padding: 24px; }
+      .modal-backdrop.ht-center .modal-sheet { border-radius: 20px; max-height: 90vh; box-shadow: 0 24px 60px rgba(26,18,8,0.3); }
+    }
     .order-track-step { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
     .track-circle { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
     .track-line { width: 2px; height: 20px; margin-left: 15px; }
@@ -1255,7 +1260,7 @@ const GlobalStyle = () => (
 // verified phone, and offers their Homely Points / free-meal vouchers.
 // The server (place_order) re-checks every reward; amounts shown here are
 // the same calculation, for display.
-function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], account = null, onSignIn, onConfirm, onClose }) {
+function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialInstructions, promoCodes = [], referralConfig, customers = [], account = null, onSignIn, onConfirm, onClose, wide = false }) {
   const prof = account?.profile || null;
   const [form, setForm] = useState({
     name: prof?.name || "", phone: account?.phone || "", tower: prof?.tower || "", flat: prof?.flat || "",
@@ -1411,19 +1416,32 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
   };
 
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-sheet">
-        {/* Handle */}
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+    <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      {/* Laptop (wide): a centred window — delivery details on the left; items, rewards, code, total and Confirm on the right */}
+      <div className="modal-sheet" style={wide ? { maxWidth: 880, padding: "30px 32px 28px", position: "relative" } : undefined}>
+        {wide ? (
+          <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: "50%", border: `1.5px solid ${C.border}`, background: C.white, color: C.inkMid, fontSize: 15, cursor: "pointer" }}>✕</button>
+        ) : (
+          /* Handle */
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
+        )}
 
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Almost there!</h2>
-        <p style={{ fontSize: 13, color: C.inkMid, marginBottom: 20 }}>Tell us where to deliver your order</p>
+        <h2 style={wide
+          ? { fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, fontWeight: 800, color: HC.brown, marginBottom: 4 }
+          : { fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Almost there!</h2>
+        <p style={{ fontSize: wide ? 14 : 13, color: C.inkMid, marginBottom: wide ? 22 : 20 }}>Tell us where to deliver your order</p>
 
-        {/* Order summary mini */}
-        <div style={{ background: C.saffronLight, borderRadius: 10, padding: "10px 14px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 13, color: C.inkMid }}>{cartCount} item{cartCount > 1 ? "s" : ""} in cart</span>
-          <span style={{ fontSize: 16, fontWeight: 800, color: C.saffron }}>₹{cartTotal}</span>
-        </div>
+        <div style={wide ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 32 } : undefined}>
+        <div style={wide ? { paddingRight: 32, borderRight: `1px dashed ${HC.dash}` } : undefined}>
+
+        {/* Order summary mini (phones; laptops list the items on the right) */}
+        {!wide && (
+          <div style={{ background: C.saffronLight, borderRadius: 10, padding: "10px 14px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: C.inkMid }}>{cartCount} item{cartCount > 1 ? "s" : ""} in cart</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: C.saffron }}>₹{cartTotal}</span>
+          </div>
+        )}
+        {wide && <h3 style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 12 }}>Delivery details</h3>}
 
         <div style={{ display: "grid", gap: 12 }}>
           {/* Name */}
@@ -1499,6 +1517,29 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
             </div>
           )}
         </div>
+        </div>
+
+        <div>
+        {wide && (
+          <>
+            <h3 style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Your order</h3>
+            <div style={{ background: C.cream, border: `1px solid ${C.border}`, borderRadius: 12, padding: "6px 16px" }}>
+              {Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => {
+                const item = menuItems.find(i => i.id === id);
+                if (!item) return null;
+                return (
+                  <div key={id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13.5, color: C.ink }}>
+                    <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{item.name} × {q}</span>
+                    <b style={{ whiteSpace: "nowrap" }}>₹{item.price * q}</b>
+                  </div>
+                );
+              })}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 13.5, fontWeight: 800, color: C.ink }}>
+                <span>{cartCount} item{cartCount > 1 ? "s" : ""}</span><span style={{ color: C.saffron }}>₹{cartTotal}</span>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* My Homely rewards — signed out: a nudge to sign in */}
         {!account && onSignIn && guestLoyaltyOn && (
@@ -1605,12 +1646,14 @@ function CustomerDetailsModal({ cart, menuItems, cartTotal, cartCount, specialIn
           </div>
         )}
 
-        <button className="ht-btn btn-primary btn-full btn-lg" style={{ marginTop: 24 }} onClick={handleConfirm}>
+        <button className="ht-btn btn-primary btn-full btn-lg" style={{ marginTop: wide ? 18 : 24 }} onClick={handleConfirm}>
           ✓ Confirm Order · ₹{finalTotal}
         </button>
         <button className="ht-btn btn-ghost btn-full btn-sm" style={{ marginTop: 8 }} onClick={onClose}>
           Cancel
         </button>
+        </div>
+        </div>
       </div>
     </div>
   );
@@ -1672,7 +1715,7 @@ function ContactUsModal({ contactInfo, onSubmitMessage, onClose }) {
   );
 
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet">
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
         <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>Contact Us</h2>
@@ -2057,7 +2100,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose, preset = null, qty 
     : "Customize your thali";
 
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet">
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
         <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 4 }}>{title}</h2>
@@ -2332,7 +2375,7 @@ function PlanChoiceModal({ plan, planConfig, onAdd, onClose, preset = null, qty 
 // ─────────────────────────────────────────────
 function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout, onClose }) {
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet" style={{ paddingBottom: 24 }}>
         <div style={{ textAlign: "center", padding: "8px 0 18px" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}><VegDishIcon variant="katori" size={44} /></div>
@@ -2371,7 +2414,7 @@ function CompleteYourMealModal({ extraItems, cart, setQty, cartTotal, onCheckout
 // ─────────────────────────────────────────────
 function InvalidPhoneModal({ onClose }) {
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-sheet" style={{ paddingBottom: 28 }}>
         <div style={{ textAlign: "center", padding: "8px 0 22px" }}>
           <div style={{ fontSize: 44, marginBottom: 12 }}>📭</div>
@@ -2639,7 +2682,7 @@ function PollModal({ poll, order, onSubmit, onClose }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={submitted ? onClose : undefined}>
+    <div className="modal-backdrop ht-center" onClick={submitted ? onClose : undefined}>
       <div className="modal-sheet" onClick={e => e.stopPropagation()}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
 
@@ -3630,7 +3673,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   if (step === "homely") {
     if (!account.ready) return null;
     if (!account.signedIn) {
-      return <MyHomelyLogin supabase={supabase} onSignedIn={() => account.refresh()} onClose={() => setStep("home")} />;
+      return <MyHomelyLogin supabase={supabase} wide={isDesktop} onSignedIn={() => account.refresh()} onClose={() => setStep("home")} />;
     }
     const disableNotifications = async () => {
       setNotifBusy(true);
@@ -4131,7 +4174,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           )}
 
           {reorderNotice && (
-            <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setReorderNotice(null); }}>
+            <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) setReorderNotice(null); }}>
               <div className="modal-sheet">
                 <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
                 <h2 style={{ fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 6 }}>
@@ -4224,6 +4267,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             customers={customers}
             account={account.signedIn ? account : null}
             onSignIn={() => setCheckoutLogin(true)}
+            wide={isDesktop}
             onConfirm={handleConfirmOrder}
             onClose={() => setShowModal(false)}
           />
@@ -4231,7 +4275,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         {/* Sign-in over the checkout sheet, so the cart and typed details stay put */}
         {showModal && checkoutLogin && (
           <div style={{ position: "fixed", inset: 0, zIndex: 600, overflowY: "auto" }}>
-            <MyHomelyLogin supabase={supabase} backLabel="← Checkout" onSignedIn={() => setCheckoutLogin(false)} onClose={() => setCheckoutLogin(false)} />
+            <MyHomelyLogin supabase={supabase} wide={isDesktop} backLabel="← Checkout" onSignedIn={() => setCheckoutLogin(false)} onClose={() => setCheckoutLogin(false)} />
           </div>
         )}
       </div>
@@ -5054,7 +5098,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
       {/* Rating popup — shown after "Order Now" is tapped, before moving to the order page */}
       {showRatingModal && unratedOrder && (
-        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) { setShowRatingModal(false); setStep("order"); } }}>
+        <div className="modal-backdrop ht-center" onClick={e => { if (e.target === e.currentTarget) { setShowRatingModal(false); setStep("order"); } }}>
           <div className="modal-sheet">
             <div style={{ width: 40, height: 4, borderRadius: 2, background: C.border, margin: "0 auto 20px" }} />
             <RatingCard
