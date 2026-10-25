@@ -352,7 +352,9 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← 
 // ─────────────────────────────────────────────
 // MY HOMELY (signed in)
 // ─────────────────────────────────────────────
-export function MyHomely({ supabase, account, towers = [], canOrder, kitchenState = "open", onClose, onOrderAgain, onOpenPrefs, notif }) {
+// wide (laptop): profile + account links in a side panel on the left, regular meal and
+// Orders / Favourites / Rewards / Credit on the right. Phones keep the single column.
+export function MyHomely({ supabase, account, towers = [], canOrder, kitchenState = "open", onClose, onOrderAgain, onOpenPrefs, notif, wide = false }) {
   const [view, setView] = useState("home");
   const [fav, setFav] = useState(null);
   const [ledger, setLedger] = useState(null);
@@ -388,107 +390,170 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
   const ks = KITCHEN_STATE[kitchenState] || KITCHEN_STATE.closed;
   const totalOrders = Number(p.totalOrders || 0);
 
+  const addressText = !account.profile ? "…" : hasAddress ? `${p.tower} · Flat ${p.flat}` : "Add your tower and flat";
+  const kitchenBadge = (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 999, border: `1.5px solid ${ks.color}`, color: ks.color, background: ks.bg, fontSize: 14, fontWeight: 700, marginBottom: wide ? 0 : 16 }}>
+      <Icon name="store" size={18} /> {ks.badge}
+    </div>
+  );
+
+  const regularCard = (
+    <section className="mh-card" style={{ position: "relative", overflow: "hidden", background: "#FFFCF6", padding: wide ? "26px 26px 24px" : "18px 16px 16px", marginBottom: wide ? 16 : 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "start" }}>
+        <div style={{ paddingTop: 4, minWidth: 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: HC.brownMid, letterSpacing: 2.2, textTransform: "uppercase" }}>
+            {fav?.regularIsPinned ? "My regular" : "Your regular"}
+          </div>
+          {!fav ? (
+            <div style={{ fontSize: 14, color: HC.brownMid, marginTop: 10 }}>{loadErr ? "Couldn't load your regular." : "Loading…"}</div>
+          ) : regular ? (
+            <>
+              <div style={{ fontFamily: SERIF, fontSize: wide ? 32 : "clamp(20px, 5.8vw, 27px)", lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "8px 0 6px", overflowWrap: "anywhere" }}>
+                {regular.items.map(i => `${mealTitle(i.name)}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}
+              </div>
+              <div style={{ fontSize: 15, color: HC.brownMid }}>
+                {fav.regularIsPinned ? "Pinned by you" : fav.regularCount > 1 ? `Ordered ${fav.regularCount} times` : `Last ordered ${fmtD(regular.date)}`}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontFamily: SERIF, fontSize: wide ? 28 : 22, lineHeight: 1.2, fontWeight: 800, color: HC.brown, margin: "8px 0 6px" }}>Your usual, one tap away</div>
+              <div style={{ fontSize: 14, color: HC.brownMid, lineHeight: 1.45 }}>Once you've ordered with us, your regular meal shows up here.</div>
+            </>
+          )}
+        </div>
+        {/* Anita Aunty — the app logo as a round badge, same ring as the home page logo */}
+        <img src="/logo.png" alt="" aria-hidden="true" style={{ display: "block", width: wide ? 132 : "clamp(84px, 27vw, 112px)", height: "auto", aspectRatio: "1 / 1", borderRadius: "50%", border: "2px solid #4A2C1F", objectFit: "cover" }} />
+      </div>
+      {fav && (regular ? (
+        canOrder
+          ? <button className="mh-tap" onClick={() => onOrderAgain(regular)} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>Order again</button>
+          : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
+      ) : (
+        canOrder
+          ? <button className="mh-tap" onClick={onClose} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>See today's menu</button>
+          : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
+      ))}
+    </section>
+  );
+
+  const ordersTile = <DashTile icon="receipt" title="My Orders" sub={!account.profile ? "…" : totalOrders ? `${totalOrders} order${totalOrders === 1 ? "" : "s"}` : "No orders yet"} onClick={() => setView("orders")} />;
+  const favouritesTile = <DashTile icon="heart" title="Favourites" sub="Your saved meals" onClick={() => setView("favourites")} />;
+  const rewardsRow = (
+    <DashRow icon="gift" onClick={() => setView("rewards")} style={{ background: "#FCEFD6", borderColor: "#F2DCB4", ...(wide ? { marginBottom: 0 } : {}) }} divider="#EBCF9F"
+      title="Homely Rewards"
+      value={!account.rewards ? "…" : loy?.enabled ? `${loy.balance} point${loy.balance === 1 ? "" : "s"}` : "Refer & earn"}
+      note={loy?.enabled && loy.balance > 0 ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : null}
+      sub={vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready · View rewards` : loy?.enabled ? "View points & rewards" : "View your referral code"} />
+  );
+  const creditRow = (
+    <DashRow icon="wallet" onClick={() => setView("ledger")} style={wide ? { marginBottom: 0 } : undefined}
+      title={!ledger ? "Credit" : due > 0 ? "Amount due" : due < 0 ? "Advance with Homely" : "All settled"}
+      value={ledger ? fmtINR(Math.abs(due)) : loadErr ? "—" : "…"}
+      valueColor={due > 0 ? HC.orangeDeep : HC.green}
+      sub="View credit ledger" />
+  );
+  const accountRows = (
+    <>
+      <AccountRow first icon="user" title="Profile & address" sub="Delivery details and instructions" onClick={() => setView("profile")} />
+      {onOpenPrefs && <AccountRow icon="utensils" title="Food preferences" sub="Spice, oil, likes & dislikes" onClick={onOpenPrefs} />}
+      <AccountRow icon="logout" title="Log out" onClick={async () => { await account.signOut(); onClose(); }} />
+    </>
+  );
+
   return (
     <div className="mh-dash" style={{ minHeight: "100vh", background: HC.cream, fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown, overflowX: "hidden" }}>
       <style>{DASH_CSS}</style>
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "10px 16px 40px" }}>
+      <div style={{ maxWidth: wide ? 980 : 480, margin: "0 auto", padding: wide ? "18px 16px 48px" : "10px 16px 40px" }}>
 
         {/* 1 · Header */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8, marginBottom: wide ? 24 : 14 }}>
           <button className="mh-tap mh-back" onClick={onClose} style={{ justifySelf: "start", display: "flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 6px 0 0", border: "none", background: "none", fontFamily: "inherit", fontSize: 15, fontWeight: 700, color: HC.brown, cursor: "pointer" }}>
             <Icon name="arrowLeft" size={22} /> Menu
           </button>
-          <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: 22, color: HC.brown, whiteSpace: "nowrap" }}>My Homely</div>
+          <div style={{ fontFamily: SERIF, fontWeight: 800, fontSize: wide ? 28 : 22, color: HC.brown, whiteSpace: "nowrap" }}>My Homely</div>
           <div aria-label={p.name ? `Signed in as ${p.name}` : "Signed in"} role="img" style={{ justifySelf: "end", width: 44, height: 44, borderRadius: "50%", background: HC.peach, color: HC.brown, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 15, letterSpacing: 0.5 }}>
             {initials(p.name) || <Icon name="user" size={20} />}
           </div>
         </div>
 
-        {/* 2 · Greeting */}
-        <h1 style={{ fontFamily: SERIF, fontSize: 34, lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "0 0 6px", overflowWrap: "anywhere" }}>
-          Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""}
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <Icon name="pin" size={20} color={HC.brownMid} />
-          <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, color: hasAddress ? HC.brownMid : HC.orangeDeep, fontWeight: hasAddress ? 600 : 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {!account.profile ? "…" : hasAddress ? `${p.tower} · Flat ${p.flat}` : "Add your tower and flat"}
-          </span>
-          <button className="mh-tap" onClick={() => setView("profile")} style={{ minHeight: 44, minWidth: 44, padding: "0 4px", border: "none", background: "none", fontFamily: "inherit", fontSize: 15, fontWeight: 800, color: HC.orangeDeep, cursor: "pointer" }}>
-            {hasAddress ? "Edit" : "Add"}
-          </button>
-        </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 999, border: `1.5px solid ${ks.color}`, color: ks.color, background: ks.bg, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-          <Icon name="store" size={18} /> {ks.badge}
-        </div>
-
-        {loadErr && <ErrorNote error={loadErr} onRetry={load} />}
-
-        {/* 3 · Your regular */}
-        <section className="mh-card" style={{ position: "relative", overflow: "hidden", background: "#FFFCF6", padding: "18px 16px 16px", marginBottom: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "start" }}>
-            <div style={{ paddingTop: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: HC.brownMid, letterSpacing: 2.2, textTransform: "uppercase" }}>
-                {fav?.regularIsPinned ? "My regular" : "Your regular"}
+        {wide ? (
+          // Laptop — option C: side panel | regular meal + 2×2 cards
+          <div style={{ display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
+            <aside className="mh-card" style={{ position: "sticky", top: 16, padding: "26px 0 4px", overflow: "hidden" }}>
+              <div style={{ padding: "0 22px 20px", textAlign: "center", borderBottom: "1px solid #F1E5D3" }}>
+                <div aria-hidden="true" style={{ width: 88, height: 88, borderRadius: "50%", background: HC.peach, color: HC.brown, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", fontFamily: SERIF, fontWeight: 800, fontSize: 30 }}>
+                  {initials(p.name) || <Icon name="user" size={36} />}
+                </div>
+                <h1 style={{ fontFamily: SERIF, fontSize: 30, lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "0 0 6px", overflowWrap: "anywhere" }}>
+                  Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""}
+                </h1>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+                  <Icon name="pin" size={18} color={HC.brownMid} />
+                  <span style={{ minWidth: 0, fontSize: 14.5, color: hasAddress ? HC.brownMid : HC.orangeDeep, fontWeight: hasAddress ? 600 : 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {addressText}
+                  </span>
+                  <button className="mh-tap" onClick={() => setView("profile")} style={{ minHeight: 36, padding: "0 4px", border: "none", background: "none", fontFamily: "inherit", fontSize: 14.5, fontWeight: 800, color: HC.orangeDeep, cursor: "pointer" }}>
+                    {hasAddress ? "Edit" : "Add"}
+                  </button>
+                </div>
+                {kitchenBadge}
               </div>
-              {!fav ? (
-                <div style={{ fontSize: 14, color: HC.brownMid, marginTop: 10 }}>{loadErr ? "Couldn't load your regular." : "Loading…"}</div>
-              ) : regular ? (
-                <>
-                  <div style={{ fontFamily: SERIF, fontSize: "clamp(20px, 5.8vw, 27px)", lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "8px 0 6px", overflowWrap: "anywhere" }}>
-                    {regular.items.map(i => `${mealTitle(i.name)}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}
-                  </div>
-                  <div style={{ fontSize: 15, color: HC.brownMid }}>
-                    {fav.regularIsPinned ? "Pinned by you" : fav.regularCount > 1 ? `Ordered ${fav.regularCount} times` : `Last ordered ${fmtD(regular.date)}`}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontFamily: SERIF, fontSize: 22, lineHeight: 1.2, fontWeight: 800, color: HC.brown, margin: "8px 0 6px" }}>Your usual, one tap away</div>
-                  <div style={{ fontSize: 14, color: HC.brownMid, lineHeight: 1.45 }}>Once you've ordered with us, your regular meal shows up here.</div>
-                </>
-              )}
+              {accountRows}
+            </aside>
+
+            <div style={{ minWidth: 0 }}>
+              {loadErr && <ErrorNote error={loadErr} onRetry={load} />}
+              {regularCard}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16 }}>
+                {ordersTile}
+                {favouritesTile}
+                {rewardsRow}
+                {creditRow}
+              </div>
             </div>
-            {/* Anita Aunty — the app logo as a round badge, same ring as the home page logo */}
-            <img src="/logo.png" alt="" aria-hidden="true" style={{ display: "block", width: "clamp(84px, 27vw, 112px)", height: "auto", aspectRatio: "1 / 1", borderRadius: "50%", border: "2px solid #4A2C1F", objectFit: "cover" }} />
           </div>
-          {fav && (regular ? (
-            canOrder
-              ? <button className="mh-tap" onClick={() => onOrderAgain(regular)} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>Order again</button>
-              : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
-          ) : (
-            canOrder
-              ? <button className="mh-tap" onClick={onClose} style={{ ...ctaStyle, background: HC.orange, color: "#fff" }}>See today's menu</button>
-              : <button disabled style={{ ...ctaStyle, background: "#E8E2D8", color: "#6F6253", cursor: "not-allowed" }}>{ks.wait}</button>
-          ))}
-        </section>
+        ) : (
+          <>
+            {/* 2 · Greeting */}
+            <h1 style={{ fontFamily: SERIF, fontSize: 34, lineHeight: 1.15, fontWeight: 800, color: HC.brown, margin: "0 0 6px", overflowWrap: "anywhere" }}>
+              Hi{firstName(p.name) ? `, ${firstName(p.name)}` : ""}
+            </h1>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Icon name="pin" size={20} color={HC.brownMid} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, color: hasAddress ? HC.brownMid : HC.orangeDeep, fontWeight: hasAddress ? 600 : 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {addressText}
+              </span>
+              <button className="mh-tap" onClick={() => setView("profile")} style={{ minHeight: 44, minWidth: 44, padding: "0 4px", border: "none", background: "none", fontFamily: "inherit", fontSize: 15, fontWeight: 800, color: HC.orangeDeep, cursor: "pointer" }}>
+                {hasAddress ? "Edit" : "Add"}
+              </button>
+            </div>
+            {kitchenBadge}
 
-        {/* 4 · Shortcuts */}
-        <div className="mh-shortcuts" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12, marginBottom: 14 }}>
-          <DashTile icon="receipt" title="My Orders" sub={!account.profile ? "…" : totalOrders ? `${totalOrders} order${totalOrders === 1 ? "" : "s"}` : "No orders yet"} onClick={() => setView("orders")} />
-          <DashTile icon="heart" title="Favourites" sub="Your saved meals" onClick={() => setView("favourites")} />
-        </div>
+            {loadErr && <ErrorNote error={loadErr} onRetry={load} />}
 
-        {/* 5 · Rewards */}
-        <DashRow icon="gift" onClick={() => setView("rewards")} style={{ background: "#FCEFD6", borderColor: "#F2DCB4" }} divider="#EBCF9F"
-          title="Homely Rewards"
-          value={!account.rewards ? "…" : loy?.enabled ? `${loy.balance} point${loy.balance === 1 ? "" : "s"}` : "Refer & earn"}
-          note={loy?.enabled && loy.balance > 0 ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : null}
-          sub={vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready · View rewards` : loy?.enabled ? "View points & rewards" : "View your referral code"} />
+            {/* 3 · Your regular */}
+            {regularCard}
 
-        {/* 6 · Credit */}
-        <DashRow icon="wallet" onClick={() => setView("ledger")}
-          title={!ledger ? "Credit" : due > 0 ? "Amount due" : due < 0 ? "Advance with Homely" : "All settled"}
-          value={ledger ? fmtINR(Math.abs(due)) : loadErr ? "—" : "…"}
-          valueColor={due > 0 ? HC.orangeDeep : HC.green}
-          sub="View credit ledger" />
+            {/* 4 · Shortcuts */}
+            <div className="mh-shortcuts" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12, marginBottom: 14 }}>
+              {ordersTile}
+              {favouritesTile}
+            </div>
 
-        {/* 7 · Account */}
-        <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, color: HC.brown, margin: "22px 2px 12px" }}>Your account</h2>
-        <div className="mh-card" style={{ padding: 0, overflow: "hidden" }}>
-          <AccountRow first icon="user" title="Profile & address" sub="Delivery details and instructions" onClick={() => setView("profile")} />
-          {onOpenPrefs && <AccountRow icon="utensils" title="Food preferences" sub="Spice, oil, likes & dislikes" onClick={onOpenPrefs} />}
-          <AccountRow icon="logout" title="Log out" onClick={async () => { await account.signOut(); onClose(); }} />
-        </div>
+            {/* 5 · Rewards */}
+            {rewardsRow}
+
+            {/* 6 · Credit */}
+            {creditRow}
+
+            {/* 7 · Account */}
+            <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 800, color: HC.brown, margin: "22px 2px 12px" }}>Your account</h2>
+            <div className="mh-card" style={{ padding: 0, overflow: "hidden" }}>
+              {accountRows}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

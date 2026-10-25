@@ -1867,7 +1867,8 @@ function VegDishIcon({ variant = "royal", size = 34 }) {
   );
 }
 
-function TodaysDishes({ planConfig }) {
+// wide (laptop): sabjis in one row, the four sides in one row.
+function TodaysDishes({ planConfig, wide = false }) {
   const isToday = !!planConfig && planConfig.date === todayStr();
   const sabjis = isToday ? (planConfig.sabjis || []).filter(s => s && s.name && s.name.trim()) : [];
   const one = (v) => (isToday && typeof v === "string" && v.trim() ? [v.trim()] : []);
@@ -1891,11 +1892,29 @@ function TodaysDishes({ planConfig }) {
   const dishLabel = { fontSize: 10.5, fontWeight: 800, color: HC.orangeDeep, letterSpacing: 0.8, textTransform: "uppercase" };
   const dishName = { fontSize: 15, fontWeight: 400, color: HC.brown, lineHeight: 1.3, marginTop: 1 };
   const groupStyle = (key) => ({ padding: "14px 0", borderTop: groups.indexOf(key) > 0 ? divider : "none" });
+  const premiumRows = premium.map(name => (
+    <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {dishIcon(<VegDishIcon variant="royal" />)}
+      <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+        <div style={dishLabel}>Premium · Gold plans</div>
+        <div style={dishName}>{name}</div>
+      </div>
+    </div>
+  ));
+  const standardRows = standard.map((name, i) => (
+    <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+      {dishIcon(<VegDishIcon variant={i % 2 === 0 ? "kadai" : "katori"} />)}
+      <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+        <div style={{ ...dishLabel, fontSize: 12, letterSpacing: 0, textTransform: "none" }}>Standard sabji</div>
+        <div style={dishName}>{name}</div>
+      </div>
+    </div>
+  ));
 
   return (
-    <div className="slide-in" style={{ marginBottom: 20, background: "#FDEFDB", border: "1px solid #F6DCBC", borderRadius: 20, padding: "18px 18px 6px" }}>
+    <div className="slide-in" style={{ marginBottom: wide ? 26 : 20, background: "#FDEFDB", border: "1px solid #F6DCBC", borderRadius: 20, padding: wide ? "22px 26px 8px" : "18px 18px 6px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-        <h2 style={{ fontFamily: serif, fontSize: 21, fontWeight: 600, color: HC.brown, margin: 0, lineHeight: 1.2 }}>Today's Kitchen</h2>
+        <h2 style={{ fontFamily: serif, fontSize: wide ? 26 : 21, fontWeight: 600, color: HC.brown, margin: 0, lineHeight: 1.2 }}>Today's Kitchen</h2>
         {groups.length > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: HC.orangeDeep, whiteSpace: "nowrap" }}>Fresh today</span>}
       </div>
 
@@ -1908,36 +1927,25 @@ function TodaysDishes({ planConfig }) {
         <>
           <div style={{ fontSize: 13, color: HC.brownMid, marginTop: 6, marginBottom: 4 }}>Here's what Anita Aunty is cooking.</div>
 
-          {premium.length > 0 && (
-            <div style={groupStyle("premium")}>
-              {premium.map(name => (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {dishIcon(<VegDishIcon variant="royal" />)}
-                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                    <div style={dishLabel}>Premium · Gold plans</div>
-                    <div style={dishName}>{name}</div>
-                  </div>
-                </div>
-              ))}
+          {wide && (premium.length > 0 || standard.length > 0) ? (
+            // Laptop: premium and standard sabjis share one row
+            <div style={{ padding: "14px 0", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px 18px" }}>
+              {premiumRows}
+              {standardRows}
             </div>
-          )}
-
-          {standard.length > 0 && (
-            <div style={{ ...groupStyle("standard"), display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px 14px" }}>
-              {standard.map((name, i) => (
-                <div key={`${name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                  {dishIcon(<VegDishIcon variant={i % 2 === 0 ? "kadai" : "katori"} />)}
-                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                    <div style={{ ...dishLabel, fontSize: 12, letterSpacing: 0, textTransform: "none" }}>Standard sabji</div>
-                    <div style={dishName}>{name}</div>
-                  </div>
+          ) : (
+            <>
+              {premium.length > 0 && <div style={groupStyle("premium")}>{premiumRows}</div>}
+              {standard.length > 0 && (
+                <div style={{ ...groupStyle("standard"), display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px 14px" }}>
+                  {standardRows}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
 
           {sides.length > 0 && (
-            <div style={{ ...groupStyle("sides"), display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 14px" }}>
+            <div style={{ ...groupStyle("sides"), display: "grid", gridTemplateColumns: `repeat(${wide ? 4 : 2}, minmax(0, 1fr))`, gap: "12px 14px" }}>
               {sides.map(x => (
                 <div key={x.key} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: HC.brownMid }}>{x.label}</div>
@@ -2382,7 +2390,7 @@ function InvalidPhoneModal({ onClose }) {
 // ─────────────────────────────────────────────
 // ORDER TRACKER (customer view)
 // ─────────────────────────────────────────────
-function OrderTracker({ status }) {
+function OrderTracker({ status, horizontal = false }) {
   if (status === "rejected") {
     return (
       <div style={{ padding: "20px 0", textAlign: "center" }}>
@@ -2403,6 +2411,35 @@ function OrderTracker({ status }) {
     { key: "delivered", label: "Delivered!", icon: "✅" },
   ];
   const idx = steps.findIndex(s => s.key === status);
+
+  // Laptop: the five steps run left to right, joined by a line
+  if (horizontal) {
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`, padding: "10px 0 0" }}>
+        {steps.map((step, i) => {
+          const done = i < idx; const active = i === idx; const upcoming = i > idx;
+          return (
+            <div key={step.key} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "0 6px", textAlign: "center" }}>
+              {i < steps.length - 1 && (
+                <div style={{ position: "absolute", top: 21, left: "calc(50% + 28px)", width: "calc(100% - 56px)", height: 3, borderRadius: 2, background: done ? C.green : C.border }} />
+              )}
+              <div className="track-circle" style={{ width: 44, height: 44, fontSize: 19, background: done ? C.green : active ? C.saffron : C.border, color: (done || active) ? C.white : C.inkLight }}>
+                {done ? "✓" : step.icon}
+              </div>
+              <div>
+                <div style={{ fontSize: 14.5, fontWeight: 600, color: upcoming ? C.inkLight : C.ink }}>{step.label}</div>
+                {active && (
+                  <div style={{ fontSize: 12, color: C.saffron, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 2 }}>
+                    <span className="pulse-dot" style={{ background: C.saffron }} /> In progress
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "16px 0" }}>
@@ -3613,6 +3650,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         canOrder={!!(kitchenOpen && menuAvailable)}
         kitchenState={kitchenPause ? "paused" : !kitchenSwitchOn ? "closed" : !menuAvailable ? "nomenu" : "open"}
         onClose={() => setStep("home")}
+        wide={isDesktop}
         onOrderAgain={startReorder}
         onOpenPrefs={async () => {
           const { data, error } = await supabase.rpc("my_pref_form_link");
@@ -3641,19 +3679,30 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           <PreferenceAutoPrompt supabase={supabase} C={C} orderId={live.id}
             onClose={() => { setPrefPromptOrderId(null); setPrefTick(t => t + 1); }} />
         )}
-        <div style={{ maxWidth: 480, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <img src="/logo.png" alt="Homely Tiffins" style={{ width: 44, height: 44, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: "0 auto 6px" }} />
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>Homely Tiffins</h1>
-            <p style={{ color: C.inkMid, fontSize: 13 }}>Order #{live.id.slice(-6).toUpperCase()}</p>
+        {/* Laptop (isDesktop): header row with Back to Home, steps across the page,
+            then the order on the left and delivery / preferences / Share & earn on the right */}
+        <div style={{ maxWidth: isDesktop ? 980 : 480, margin: "0 auto" }}>
+          <div style={isDesktop
+            ? { display: "flex", alignItems: "center", gap: 14, marginBottom: 22, paddingTop: 4 }
+            : { textAlign: "center", marginBottom: 24 }}>
+            <img src="/logo.png" alt="Homely Tiffins" style={{ width: isDesktop ? 56 : 44, height: isDesktop ? 56 : 44, borderRadius: "50%", border: `2px solid ${C.ink}`, objectFit: "cover", display: "block", margin: isDesktop ? 0 : "0 auto 6px" }} />
+            <div>
+              <h1 style={{ fontSize: isDesktop ? 26 : 22, fontWeight: 800, color: C.ink }}>Homely Tiffins</h1>
+              <p style={{ color: C.inkMid, fontSize: isDesktop ? 14 : 13 }}>Order #{live.id.slice(-6).toUpperCase()}</p>
+            </div>
+            {isDesktop && (
+              <button className="ht-btn btn-secondary" style={{ marginLeft: "auto" }} onClick={() => { setStep("home"); setActiveOrder(null); }}>
+                ← Back to Home
+              </button>
+            )}
           </div>
 
-          <div className="ht-card slide-in" style={{ padding: 24, marginBottom: 16, borderColor: isRejected ? C.red : C.border }}>
+          <div className="ht-card slide-in" style={{ padding: isDesktop ? "24px 28px 28px" : 24, marginBottom: isDesktop ? 18 : 16, borderColor: isRejected ? C.red : C.border }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: C.ink }}>Live Order Status</h2>
+              <h2 style={{ fontSize: isDesktop ? 19 : 16, fontWeight: 700, color: C.ink }}>Live Order Status</h2>
               <span className={`ht-badge badge-${live.status}`}>{live.status}</span>
             </div>
-            <OrderTracker status={live.status} />
+            <OrderTracker status={live.status} horizontal={isDesktop} />
           </div>
 
           {stuckPending && (
@@ -3671,11 +3720,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
           )}
 
+          <div style={isDesktop ? { display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: 18, alignItems: "start" } : undefined}>
+          <div>
           {!isRejected && (
-            <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 16 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 12 }}>Your Order</h3>
+            <div className="ht-card slide-in" style={{ padding: isDesktop ? 24 : 20, marginBottom: isDesktop ? 18 : 16 }}>
+              <h3 style={{ fontSize: isDesktop ? 17 : 14, fontWeight: 700, color: C.ink, marginBottom: 12 }}>Your Order</h3>
               {live.items.map(item => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 14 }}>
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: isDesktop ? "9px 0" : "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: isDesktop ? 15 : 14 }}>
                   <span style={{ color: C.inkMid }}>{item.name} × {item.qty}</span>
                   <span style={{ fontWeight: 600, color: C.ink }}>₹{item.price * item.qty}</span>
                 </div>
@@ -3692,16 +3743,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   </div>
                 </>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontWeight: 700, fontSize: 15 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: isDesktop ? 14 : 10, fontWeight: 700, fontSize: isDesktop ? 17 : 15 }}>
                 <span>Total</span>
                 <span style={{ color: C.saffron }}>₹{live.total}</span>
               </div>
             </div>
           )}
+          </div>
+          <div>
 
           {!isRejected && (
-            <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 16 }}>
-              <p style={{ fontSize: 13, color: C.inkMid }}>
+            <div className="ht-card slide-in" style={{ padding: 20, marginBottom: isDesktop ? 18 : 16 }}>
+              <p style={{ fontSize: isDesktop ? 14.5 : 13, color: C.inkMid }}>
                 Delivering to <strong style={{ color: C.ink }}>{live.tower}, Flat {live.flat}</strong>
               </p>
             </div>
@@ -3714,7 +3767,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           {!isRejected && referralConfig && referralConfig.enabled !== false && getReferralCode(live.phone) && (
             <div className="ht-card slide-in" style={{ padding: 18, marginBottom: 20, background: C.saffronLight, borderColor: C.saffron }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🎁 Share &amp; earn</div>
-              <p style={{ fontSize: 12, color: C.inkMid, lineHeight: 1.5, marginBottom: 10 }}>
+              <p style={{ fontSize: isDesktop ? 13 : 12, color: C.inkMid, lineHeight: 1.5, marginBottom: 10 }}>
                 Share your code with friends. They save ₹{referralConfig.referredDiscount || 0} on their first order,
                 and you get ₹{referralConfig.referrerReward || 0} credit on your next.
               </p>
@@ -3740,10 +3793,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               </div>
             </div>
           )}
+          </div>
+          </div>
 
-          <button className="ht-btn btn-secondary btn-full" onClick={() => { setStep("home"); setActiveOrder(null); }}>
+          {!isDesktop && <button className="ht-btn btn-secondary btn-full" onClick={() => { setStep("home"); setActiveOrder(null); }}>
             ← Back to Home
-          </button>
+          </button>}
         </div>
 
         {/* "How did you hear about Homely?" — the database only opens it after a customer's first successful order */}
@@ -3771,48 +3826,79 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
   // ── ORDER / MENU VIEW ──
   if (step === "order") {
+    // Laptop (isDesktop): menu on the left, a "Your order" panel on the right that stays in
+    // view (replaces the bottom cart bar and holds Special Instructions); meal plans become
+    // photo cards, two per row. Phones keep the single column and the bottom bar.
+    const planBox = (last) => isDesktop
+      ? { display: "flex", flexDirection: "column", background: C.white, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden", boxShadow: C.shadow }
+      : { padding: "16px 20px", ...(last ? {} : { borderBottom: `1px solid ${C.border}` }) };
+    const planRow = isDesktop
+      ? { display: "flex", flexDirection: "column", flex: 1 }
+      : { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 };
+    const planImg = isDesktop
+      ? { width: "100%", aspectRatio: "16 / 10", objectFit: "cover", display: "block", cursor: "zoom-in" }
+      : { width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" };
+    const planInfo = isDesktop
+      ? { padding: "14px 16px 0", minWidth: 0, overflowWrap: "anywhere" }
+      : { flex: 1, minWidth: 0, overflowWrap: "anywhere" };
+    const planBuy = isDesktop
+      ? { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px 16px", marginTop: "auto" }
+      : { textAlign: "right", flexShrink: 0 };
+    const planPrice = { fontSize: isDesktop ? 19 : 15, fontWeight: 800, color: C.saffron, marginBottom: isDesktop ? 0 : 6 };
+    const planTitle = { fontSize: isDesktop ? 17 : 15, fontWeight: 800, color: C.ink };
+    const planDesc = { fontSize: isDesktop ? 13 : 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 };
+    const proceed = () => (extraItems.length > 0 ? setShowExtrasPrompt(true) : setShowModal(true));
+    const qtyBtn = { width: 28, height: 28, padding: 0, borderRadius: "50%", fontSize: 16 };
+
     return (
-      <div style={{ minHeight: "100vh", background: C.cream, padding: "24px 16px" }}>
-        <div style={{ maxWidth: 520, margin: "0 auto" }}>
+      <div style={{ minHeight: "100vh", background: C.cream, padding: isDesktop ? "28px 16px" : "24px 16px" }}>
+        <div style={{ maxWidth: isDesktop ? 1060 : 520, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
             <button className="ht-btn btn-ghost btn-sm" onClick={() => setStep("home")}>← Back</button>
-            <h1 style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>Today's Menu</h1>
-            <span style={{ marginLeft: "auto", fontSize: 12, color: C.inkLight }}>{fmtDate(todayStr())}</span>
+            <h1 style={isDesktop
+              ? { fontFamily: "'Playfair Display', Georgia, serif", fontSize: 32, fontWeight: 800, color: HC.brown }
+              : { fontSize: 20, fontWeight: 800, color: C.ink }}>Today's Menu</h1>
+            <span style={{ marginLeft: "auto", fontSize: isDesktop ? 14 : 12, color: C.inkLight }}>{fmtDate(todayStr())}</span>
           </div>
 
+          <div style={isDesktop ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 330px", gap: 28, alignItems: "start" } : undefined}>
+          <div style={{ minWidth: 0 }}>
+
           {/* ── TODAY'S DISHES: published sabjis + sides, before choosing a plan ── */}
-          <TodaysDishes planConfig={planConfig} />
+          <TodaysDishes planConfig={planConfig} wide={isDesktop} />
 
           {/* ── MEAL PLANS: Homely Gold / Standard / Mini ── */}
           {plansAvailable && (planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge || planConfig.enabled?.standard || planConfig.enabled?.mini || planConfig.enabled?.goldMini) && (
-            <div style={{ marginBottom: 16 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10 }}>🍽️ Meal Plans</h2>
-              <div className="ht-card slide-in" style={{ padding: 0, marginBottom: 10, overflow: "hidden" }}>
+            <div style={{ marginBottom: isDesktop ? 26 : 16 }}>
+              <h2 style={{ fontSize: isDesktop ? 18 : 14, fontWeight: 800, color: C.ink, marginBottom: isDesktop ? 14 : 10 }}>🍽️ Meal Plans</h2>
+              <div className={isDesktop ? "slide-in" : "ht-card slide-in"} style={isDesktop
+                ? { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 18 }
+                : { padding: 0, marginBottom: 10, overflow: "hidden" }}>
                 {(planConfig.enabled?.goldMedium || planConfig.enabled?.goldLarge) && (
-                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={planBox(false)}>
+                    <div style={planRow}>
                       {planConfig.photos?.gold && (
                         <img
                           src={planConfig.photoThumbs?.gold || planConfig.photos.gold} loading="lazy" decoding="async"
                           alt="Homely Gold"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.gold, label: "Homely Gold" })}
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                          style={planImg}
                         />
                       )}
-                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <div style={planInfo}>
+                        <div style={{ ...planTitle, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           ✨ Homely Gold
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", border: "1px solid #FCD34D", whiteSpace: "nowrap" }}>⭐ Highest Rated</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                        <div style={planDesc}>
                           Choice of 2 sabjis (inc premium) + Choice of breads + Special Rice + Choice of sides + Salad for the day
                         </div>
                         <div style={{ fontSize: 11, color: C.inkLight, marginTop: 4, fontWeight: 600 }}>
                           {planConfig.enabled?.goldMedium && planConfig.enabled?.goldLarge ? "Available in Medium & Large" : planConfig.enabled?.goldLarge ? "Large only today" : "Medium only today"}
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>
+                      <div style={planBuy}>
+                        <div style={planPrice}>
                           {planConfig.enabled?.goldMedium
                             ? `₹${planConfig.prices.gold}`
                             : `₹${planConfig.prices.gold + (planConfig.prices.goldLargeSurcharge || 0)}`}
@@ -3823,78 +3909,78 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   </div>
                 )}
                 {planConfig.enabled?.goldMini && (
-                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={planBox(false)}>
+                    <div style={planRow}>
                       {planConfig.photos?.goldMini && (
                         <img
                           src={planConfig.photoThumbs?.goldMini || planConfig.photos.goldMini} loading="lazy" decoding="async"
                           alt="Homely Gold Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.goldMini, label: "Homely Gold Mini" })}
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                          style={planImg}
                         />
                       )}
-                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <div style={planInfo}>
+                        <div style={{ ...planTitle, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           ✨ Homely Gold Mini
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534", border: "1px solid #86EFAC", whiteSpace: "nowrap" }}>🏆 Top Choice</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                        <div style={planDesc}>
                           Choice of 1 sabji (incl. Premium) + 4 ghee chapatis + salad for the day + choice of raita or sweet
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.goldMini}</div>
+                      <div style={planBuy}>
+                        <div style={planPrice}>₹{planConfig.prices.goldMini}</div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("goldMini")}>+ Add</button>
                       </div>
                     </div>
                   </div>
                 )}
                 {planConfig.enabled?.standard && (
-                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={planBox(false)}>
+                    <div style={planRow}>
                       {planConfig.photos?.standard && (
                         <img
                           src={planConfig.photoThumbs?.standard || planConfig.photos.standard} loading="lazy" decoding="async"
                           alt="Homely Standard"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.standard, label: "Homely Standard" })}
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                          style={planImg}
                         />
                       )}
-                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <div style={planInfo}>
+                        <div style={{ ...planTitle, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                           Homely Standard
                           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FFEDD5", color: "#9A3412", border: "1px solid #FDBA74", whiteSpace: "nowrap" }}>🔥 Mostly Ordered</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                        <div style={planDesc}>
                           2 standard sabjis (fixed) + 4 chapatis + steamed rice + standard salad
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.standard}</div>
+                      <div style={planBuy}>
+                        <div style={planPrice}>₹{planConfig.prices.standard}</div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("standard")}>+ Add</button>
                       </div>
                     </div>
                   </div>
                 )}
                 {planConfig.enabled?.mini && (
-                  <div style={{ padding: "16px 20px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={planBox(true)}>
+                    <div style={planRow}>
                       {planConfig.photos?.mini && (
                         <img
                           src={planConfig.photoThumbs?.mini || planConfig.photos.mini} loading="lazy" decoding="async"
                           alt="Homely Mini"
                           onClick={() => setPhotoPreview({ src: planConfig.photos.mini, label: "Homely Mini" })}
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, flexShrink: 0, cursor: "zoom-in" }}
+                          style={planImg}
                         />
                       )}
-                      <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>Homely Mini</div>
-                        <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4, lineHeight: 1.5 }}>
+                      <div style={planInfo}>
+                        <div style={planTitle}>Homely Mini</div>
+                        <div style={planDesc}>
                           Choice of 1 sabji + 4 chapatis + standard salad
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: C.saffron, marginBottom: 6 }}>₹{planConfig.prices.mini}</div>
+                      <div style={planBuy}>
+                        <div style={planPrice}>₹{planConfig.prices.mini}</div>
                         <button className="ht-btn btn-primary btn-sm" onClick={() => setPlanChoiceModal("mini")}>+ Add</button>
                       </div>
                     </div>
@@ -3903,7 +3989,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               </div>
 
               {/* Configured Gold / Standard / Mini selections already in the cart */}
-              {Object.entries(planCartMeta).length > 0 && (
+              {!isDesktop && Object.entries(planCartMeta).length > 0 && (
                 <div className="ht-card slide-in" style={{ padding: 20 }}>
                   <h3 style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Your Selections</h3>
                   {Object.entries(planCartMeta).filter(([id]) => cart[id]).map(([id, m]) => (
@@ -3924,10 +4010,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
           )}
 
+          {/* Laptop: extras and à la carte side by side */}
+          <div style={isDesktop ? { display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 18, alignItems: "start" } : undefined}>
           {/* ── TODAY'S EXTRAS: Raita / Salad / Sweet ── */}
           {plansAvailable && extraItems.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="katori" size={20} />Today's Extras</h2>
+              <h2 style={{ fontSize: isDesktop ? 16 : 14, fontWeight: 800, color: C.ink, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="katori" size={20} />Today's Extras</h2>
               <div style={{ fontSize: 11.5, color: C.inkMid, marginBottom: 10 }}>Optional add-ons, charged separately — not needed for the sides already included in your plan.</div>
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {extraItems.map(item => (
@@ -3949,8 +4037,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
           {/* ── À LA CARTE ── */}
           {menuItems.length > 0 && (
-            <div style={{ marginBottom: cartCount > 0 ? 16 : 80 }}>
-              {plansAvailable && <h2 style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="kadai" size={20} />À la carte</h2>}
+            <div style={{ marginBottom: isDesktop || cartCount > 0 ? 16 : 80 }}>
+              {plansAvailable && <h2 style={{ fontSize: isDesktop ? 16 : 14, fontWeight: 800, color: C.ink, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><VegDishIcon variant="kadai" size={20} />À la carte</h2>}
               <div className="ht-card slide-in" style={{ padding: 20 }}>
                 {menuItems.map(item => (
                   <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -3968,6 +4056,63 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               </div>
             </div>
           )}
+          </div>
+          </div>
+
+          {/* Laptop: "Your order" panel — stays in view while the menu scrolls */}
+          {isDesktop && (
+            <aside className="ht-card" style={{ position: "sticky", top: 20, padding: 20 }}>
+              <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, fontWeight: 800, color: HC.brown, marginBottom: 4 }}>Your order</h2>
+              {cartCount === 0 ? (
+                <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.5, padding: "4px 0 2px" }}>
+                  Add a meal plan or a dish and it will show up here.
+                </p>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12.5, color: C.inkMid, marginBottom: 4 }}>{cartCount} item{cartCount > 1 ? "s" : ""}</div>
+                  {Object.entries(cart).filter(([, q]) => q > 0).map(([id, q]) => {
+                    const item = allSellableItems.find(i => i.id === id);
+                    if (!item) return null;
+                    return (
+                      <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{item.name}</div>
+                          <div style={{ fontSize: 12.5, color: C.saffron, fontWeight: 700 }}>₹{item.price}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          <button className="ht-btn btn-secondary btn-sm" style={qtyBtn} onClick={() => setQty(id, -1)} aria-label={`Remove one ${item.name}`}>−</button>
+                          <span style={{ fontSize: 14, fontWeight: 700, minWidth: 18, textAlign: "center", color: C.ink }}>{q}</span>
+                          <button className="ht-btn btn-primary btn-sm" style={qtyBtn} onClick={() => setQty(id, 1)} aria-label={`Add one ${item.name}`}>+</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <label style={{ fontSize: 13, fontWeight: 700, color: C.ink, display: "block", margin: "14px 0 8px" }}>
+                    📝 Special Instructions <span style={{ fontWeight: 400, color: C.inkLight, fontSize: 11 }}>(optional)</span>
+                  </label>
+                  <textarea
+                    className="ht-input"
+                    placeholder="e.g. less spicy, no onion, extra raita..."
+                    value={specialInstructions}
+                    onChange={e => setSpecialInstructions(e.target.value.slice(0, 200))}
+                    rows={3}
+                    style={{ resize: "vertical", fontFamily: "inherit", lineHeight: 1.4 }}
+                  />
+                  <div style={{ fontSize: 10, color: C.inkLight, marginTop: 4, textAlign: "right" }}>
+                    {specialInstructions.length}/200
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "12px 0", paddingTop: 12, borderTop: `1px dashed ${HC.dash}` }}>
+                    <span style={{ fontSize: 14, color: C.inkMid }}>Total</span>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: C.ink }}>₹{cartTotal}</span>
+                  </div>
+                  <button className="ht-btn btn-primary btn-lg btn-full" onClick={proceed}>
+                    Proceed to Order →
+                  </button>
+                </>
+              )}
+            </aside>
+          )}
+          </div>
 
           {planChoiceModal && (
             <PlanChoiceModal
@@ -4033,8 +4178,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             />
           )}
 
-          {/* Special Instructions — only show after items added */}
-          {cartCount > 0 && (
+          {/* Special Instructions — only show after items added (laptops: in the Your order panel) */}
+          {cartCount > 0 && !isDesktop && (
             <div className="ht-card slide-in" style={{ padding: 20, marginBottom: 80 }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: C.ink, display: "block", marginBottom: 8 }}>
                 📝 Special Instructions <span style={{ fontWeight: 400, color: C.inkLight, fontSize: 11 }}>(optional)</span>
@@ -4053,14 +4198,14 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
           )}
 
-          {/* Sticky cart bar — opens modal */}
-          {cartCount > 0 && (
+          {/* Sticky cart bar — opens modal (phones only; laptops use the Your order panel) */}
+          {cartCount > 0 && !isDesktop && (
             <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.white, borderTop: `1px solid ${C.border}`, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)", zIndex: 100 }}>
               <div>
                 <div style={{ fontSize: 13, color: C.inkMid }}>{cartCount} item{cartCount > 1 ? "s" : ""}</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>₹{cartTotal}</div>
               </div>
-              <button className="ht-btn btn-primary btn-lg" onClick={() => (extraItems.length > 0 ? setShowExtrasPrompt(true) : setShowModal(true))}>
+              <button className="ht-btn btn-primary btn-lg" onClick={proceed}>
                 Proceed to Order →
               </button>
             </div>
