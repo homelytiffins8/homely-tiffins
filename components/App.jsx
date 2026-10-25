@@ -2941,31 +2941,35 @@ function fmtCountdown(ms) {
   return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
 
-function PausedBanner({ pause }) {
+// wide (laptop home page): roti | message | countdown in one row at the 980px section width.
+function PausedBanner({ pause, wide = false }) {
   const left = useCountdown(pause.until);
   const s = Math.ceil(left / 1000);
   const parts = [[Math.floor(s / 60) % 60, "min"], [s % 60, "sec"]];
   if (s >= 3600) parts.unshift([Math.floor(s / 3600), "hr"]);
   const digit = { fontSize: 46, fontWeight: 800, color: "#C2660A", fontVariantNumeric: "tabular-nums", lineHeight: 1 };
   return (
-    <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
+    <div style={{ maxWidth: wide ? 980 : 420, margin: "18px auto 0", padding: "0 14px" }}>
       <style>{`
         @keyframes htPausePulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
         @media (prefers-reduced-motion: reduce) { .ht-pause-dot { animation: none !important; } }
       `}</style>
       <div style={{
         background: "#FFF9EC", border: "2px solid #F5BE4F", borderRadius: 22,
-        padding: "18px 18px 20px", textAlign: "center",
+        padding: wide ? "20px 28px" : "18px 18px 20px", textAlign: wide ? "left" : "center",
+        ...(wide ? { display: "grid", gridTemplateColumns: "170px 1fr auto", gap: 28, alignItems: "center" } : {}),
       }}>
-        <img src="/pause-roti.webp" alt="" style={{ width: 190, maxWidth: "70%", height: "auto", display: "block", margin: "0 auto" }} />
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 10, background: "#FDE9B8", borderRadius: 999, padding: "6px 14px" }}>
+        <img src="/pause-roti.webp" alt="" style={{ width: wide ? "100%" : 190, maxWidth: wide ? "100%" : "70%", height: "auto", display: "block", margin: "0 auto" }} />
+        <div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: wide ? 0 : 10, background: "#FDE9B8", borderRadius: 999, padding: "6px 14px" }}>
           <span className="ht-pause-dot" style={{ width: 10, height: 10, borderRadius: "50%", background: "#E08A00", animation: "htPausePulse 1.6s ease-in-out infinite" }} />
           <span style={{ fontSize: 12, fontWeight: 800, color: "#3E2A14", letterSpacing: 1 }}>ORDERS PAUSED</span>
         </div>
-        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, fontWeight: 800, color: "#6B3410", margin: "10px 0 6px", lineHeight: 1.15 }}>Kitchen’s on a short break</h2>
-        <div style={{ fontSize: 14, color: "#4A3A2A", fontWeight: 600, lineHeight: 1.45, whiteSpace: "pre-line" }}>{pause.message || DEFAULT_PAUSE_MESSAGE}</div>
+        <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: wide ? 30 : 26, fontWeight: 800, color: "#6B3410", margin: "10px 0 6px", lineHeight: 1.15 }}>Kitchen’s on a short break</h2>
+        <div style={{ fontSize: wide ? 15 : 14, color: "#4A3A2A", fontWeight: 600, lineHeight: 1.45, whiteSpace: "pre-line" }}>{pause.message || DEFAULT_PAUSE_MESSAGE}</div>
+        </div>
         <div style={{
-          margin: "14px auto 0", maxWidth: 260, background: "linear-gradient(180deg, #FDEFC8, #FBE6B0)",
+          margin: wide ? 0 : "14px auto 0", maxWidth: 260, minWidth: wide ? 220 : undefined, textAlign: "center", background: "linear-gradient(180deg, #FDEFC8, #FBE6B0)",
           border: "2px solid #F8DA95", borderRadius: 18, padding: "10px 12px 8px",
         }}>
           <div style={{ fontSize: 11, fontWeight: 800, color: "#5A4630", letterSpacing: 1.5 }}>WE’LL BE BACK IN</div>
@@ -4117,6 +4121,11 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   const startIdx = dayOfYear % ALL_TESTIMONIALS.length;
   const shownTestimonials = Array.from({ length: 5 }, (_, i) => ALL_TESTIMONIALS[(startIdx + i) % ALL_TESTIMONIALS.length]);
 
+  // Laptop layout (isDesktop): sections below the hero share its 980px width and sit
+  // side by side; phones keep the single 420px column. Reviews show 3 at once, no carousel.
+  const secW = isDesktop ? 980 : 420;
+  const reviews = isDesktop ? shownTestimonials.slice(0, 3) : shownTestimonials;
+
   return (
     <div style={{ background: HC.cream, minHeight: "100vh", fontFamily: "'Nunito', system-ui, sans-serif", color: HC.brown, overflowX: "hidden" }}>
       <style>{`
@@ -4142,7 +4151,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       `}</style>
 
       {/* ═══════ SECTION 1 — HEADER (logo + wordmark) ═══════ */}
-      <div style={{ maxWidth: 420, margin: "0 auto", padding: "14px 14px 0" }}>
+      <div style={{ maxWidth: secW, margin: "0 auto", padding: "14px 14px 0" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <img
             src="/logo.png"
@@ -4341,33 +4350,41 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
       {/* Kitchen paused / closed / menu not published banners (only when relevant) */}
       {kitchenPause ? (
-        <PausedBanner pause={kitchenPause} />
+        <PausedBanner pause={kitchenPause} wide={isDesktop} />
       ) : !kitchenOpen ? (
-        <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
+        <div style={{ maxWidth: secW, margin: "18px auto 0", padding: "0 14px" }}>
           <div style={{
             background: "#FBF1F0", border: "2px dashed #E6B3B0", borderRadius: 18,
-            padding: "20px 20px", textAlign: "center",
+            padding: isDesktop ? "18px 24px" : "20px 20px", textAlign: isDesktop ? "left" : "center",
+            ...(isDesktop ? { display: "flex", alignItems: "center", gap: 18 } : {}),
           }}>
             <div style={{ fontSize: 34 }}>🍴</div>
-            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "#B23A34", margin: "8px 0 4px" }}>Kitchen is Closed</h2>
-            <div style={{ fontSize: 13, color: HC.brownMid, fontWeight: 600 }}>We're not accepting orders right now. Please check back later.</div>
+            <div>
+              <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "#B23A34", margin: isDesktop ? "0 0 2px" : "8px 0 4px" }}>Kitchen is Closed</h2>
+              <div style={{ fontSize: isDesktop ? 14 : 13, color: HC.brownMid, fontWeight: 600 }}>We're not accepting orders right now. Please check back later.</div>
+            </div>
           </div>
         </div>
       ) : !menuAvailable ? (
-        <div style={{ maxWidth: 420, margin: "18px auto 0", padding: "0 14px" }}>
+        <div style={{ maxWidth: secW, margin: "18px auto 0", padding: "0 14px" }}>
           <div style={{
             background: HC.card, border: `2px dashed ${HC.dash}`, borderRadius: 18,
-            padding: "20px 20px", textAlign: "center",
+            padding: isDesktop ? "18px 24px" : "20px 20px", textAlign: isDesktop ? "left" : "center",
+            ...(isDesktop ? { display: "flex", alignItems: "center", gap: 18 } : {}),
           }}>
             <div style={{ fontSize: 34 }}>⏳</div>
-            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: HC.brown, margin: "8px 0 4px" }}>Menu Not Published Yet</h2>
-            <div style={{ fontSize: 13, color: HC.brownMid, fontWeight: 600 }}>Check back soon — today's menu will appear here once it's published.</div>
+            <div>
+              <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: HC.brown, margin: isDesktop ? "0 0 2px" : "8px 0 4px" }}>Menu Not Published Yet</h2>
+              <div style={{ fontSize: isDesktop ? 14 : 13, color: HC.brownMid, fontWeight: 600 }}>Check back soon — today's menu will appear here once it's published.</div>
+            </div>
           </div>
         </div>
       ) : null}
 
       {/* ═══════ SECTION 8A — TRACK YOUR ORDER ═══════ */}
-      <div style={{ maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
+      <div style={{ maxWidth: secW, margin: "20px auto 0", padding: "0 14px" }}>
+        {/* Laptop: track card | the two tiles, side by side */}
+        <div style={isDesktop ? { display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16 } : undefined}>
         <div
           onClick={() => {
             if (trackActiveOrder) {
@@ -4378,17 +4395,17 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           style={{
             background: "linear-gradient(135deg, #FFF2DE 0%, #FBE4C0 100%)",
             borderRadius: 20, border: `1.5px solid ${HC.orange}`,
-            padding: "14px 14px 12px", boxShadow: "0 6px 18px rgba(224, 115, 26, 0.14)",
-            display: "flex", alignItems: "center", gap: 12,
+            padding: isDesktop ? "20px" : "14px 14px 12px", boxShadow: "0 6px 18px rgba(224, 115, 26, 0.14)",
+            display: "flex", alignItems: "center", gap: isDesktop ? 16 : 12,
             cursor: trackActiveOrder ? "pointer" : "default",
           }}
         >
           <div style={{
-            width: 46, height: 46, borderRadius: "50%", background: "#fff",
+            width: isDesktop ? 58 : 46, height: isDesktop ? 58 : 46, borderRadius: "50%", background: "#fff",
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             border: `2px solid ${HC.orange}`, position: "relative",
           }}>
-            <span style={{ fontSize: 22, lineHeight: 1 }}>🥡</span>
+            <span style={{ fontSize: isDesktop ? 28 : 22, lineHeight: 1 }}>🥡</span>
             <span style={{
               position: "absolute", top: -4, right: -4, fontSize: 14, lineHeight: 1,
               filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.15))",
@@ -4397,14 +4414,14 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontFamily: "'Nunito', sans-serif", fontSize: 10, fontWeight: 800,
+              fontFamily: "'Nunito', sans-serif", fontSize: isDesktop ? 11 : 10, fontWeight: 800,
               color: HC.orange, letterSpacing: 1, textTransform: "uppercase",
             }}>Track Your Order</div>
             {trackActiveOrder ? (
               <>
                 <div style={{
                   fontFamily: "'Playfair Display', Georgia, serif",
-                  fontWeight: 800, fontSize: 15, color: HC.brown, lineHeight: 1.2, marginTop: 2,
+                  fontWeight: 800, fontSize: isDesktop ? 19 : 15, color: HC.brown, lineHeight: 1.2, marginTop: 2,
                 }}>
                   {trackActiveOrder.status === "pending" &&
                     ((nowTick - new Date(trackActiveOrder.createdAt).getTime()) > 15 * 60 * 1000
@@ -4443,9 +4460,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               <>
                 <div style={{
                   fontFamily: "'Playfair Display', Georgia, serif",
-                  fontWeight: 800, fontSize: 15, color: HC.brown, lineHeight: 1.2, marginTop: 2,
+                  fontWeight: 800, fontSize: isDesktop ? 19 : 15, color: HC.brown, lineHeight: 1.2, marginTop: 2,
                 }}>No active orders yet</div>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 11.5, color: HC.brown, opacity: 0.75, marginTop: 2 }}>
+                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: isDesktop ? 13 : 11.5, color: HC.brown, opacity: 0.75, marginTop: 2 }}>
                   Your next tiffin is one tap away →
                 </div>
               </>
@@ -4458,12 +4475,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
         </div>
 
         {/* Order updates + Install app tiles — always shown */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: isDesktop ? 12 : 8, marginTop: isDesktop ? 0 : 10 }}>
           <button
             className={notifStatus !== "granted" && !notifBusy ? "h5-notif-btn" : undefined}
             onClick={handleNotifTileClick}
             style={{
-              minWidth: 0, textAlign: "left", padding: 10, borderRadius: 14,
+              minWidth: 0, textAlign: "left", padding: isDesktop ? 16 : 10, borderRadius: isDesktop ? 18 : 14,
               fontFamily: "'Nunito', sans-serif",
               background: notifStatus === "granted" ? "#E8F5E9" : HC.orange,
               border: `1.5px solid ${notifStatus === "granted" ? "#2E7D32" : HC.orange}`,
@@ -4472,13 +4489,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
               opacity: notifBusy ? 0.7 : 1,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: 13, lineHeight: 1.2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: isDesktop ? 15 : 13, lineHeight: 1.2 }}>
               {notifStatus === "granted" ? "✓ Updates on" : notifBusy ? "Enabling…" : (
                 <><span className="h5-notif-bell" style={{ fontSize: 15 }}>🔔</span>Order updates</>
               )}
             </div>
             <div style={{
-              display: "flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: 11,
+              display: "flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: isDesktop ? 12.5 : 11,
               color: notifStatus === "granted" ? "#2E7D32" : "#FFE9D4",
             }}>
               <span className={notifStatus === "granted" ? undefined : "h5-live-dot"} style={{
@@ -4492,14 +4509,14 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           <button
             onClick={handleInstallClick}
             style={{
-              minWidth: 0, textAlign: "left", padding: 10, borderRadius: 14,
+              minWidth: 0, textAlign: "left", padding: isDesktop ? 16 : 10, borderRadius: isDesktop ? 18 : 14,
               fontFamily: "'Nunito', sans-serif",
               background: "#fff", border: `1.5px solid ${isStandalone ? "#2E7D32" : HC.orange}`,
               color: HC.brown, cursor: isStandalone ? "default" : "pointer",
             }}
           >
             <div style={{
-              display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: 13, lineHeight: 1.2,
+              display: "flex", alignItems: "center", gap: 6, fontWeight: 800, fontSize: isDesktop ? 15 : 13, lineHeight: 1.2,
               color: isStandalone ? "#2E7D32" : HC.orange,
             }}>
               {isStandalone ? "✓ App installed" : (
@@ -4512,12 +4529,13 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                 </>
               )}
             </div>
-            <div style={{ marginTop: 4, fontSize: 11, color: HC.brownMid }}>
+            <div style={{ marginTop: 4, fontSize: isDesktop ? 12.5 : 11, color: HC.brownMid }}>
               {isStandalone ? "You're using the app" : "Order in one tap"}
             </div>
           </button>
         </div>
-        <div style={{ marginTop: 7, fontSize: 11, color: HC.brownMid, lineHeight: 1.4 }}>
+        </div>
+        <div style={{ marginTop: isDesktop ? 10 : 7, fontSize: isDesktop ? 12 : 11, color: HC.brownMid, lineHeight: 1.4, textAlign: isDesktop ? "center" : undefined }}>
           Accepted → Preparing → Ready → Dispatched → Delivered
         </div>
 
@@ -4550,7 +4568,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       </div>
 
       {/* ═══════ SECTION 3A — HOMELY REWARD POINTS (coming soon) ═══════ */}
-      <div style={{ maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
+      {/* Laptop: Homely Gold | Reward Points side by side (Gold first via order) */}
+      <div style={isDesktop ? { maxWidth: secW, margin: "32px auto 0", padding: "0 14px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 } : undefined}>
+      <div style={isDesktop ? { order: 1 } : { maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
         <img
           src="/rewards-banner.jpg"
           alt={REWARDS_ALT}
@@ -4562,10 +4582,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       </div>
 
       {/* ═══════ SECTION 3B — HOMELY GOLD LAUNCH BANNER ═══════ */}
-      <div style={{ maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
+      <div style={isDesktop ? undefined : { maxWidth: 420, margin: "20px auto 0", padding: "0 14px" }}>
         <div style={{
           position: "relative",
-          aspectRatio: "3 / 4",
+          aspectRatio: isDesktop ? "720 / 1004" : "3 / 4",
           borderRadius: 20,
           overflow: "hidden",
           boxShadow: "0 6px 20px rgba(59,42,26,0.25)",
@@ -4584,10 +4604,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             position: "absolute", inset: 0,
             background: "linear-gradient(to bottom, rgba(59,42,26,0.15) 0%, rgba(59,42,26,0.15) 40%, rgba(59,42,26,0.96) 78%, rgba(59,42,26,0.98) 100%)",
           }} />
-          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 16 }}>
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: isDesktop ? 26 : 16 }}>
             <div style={{
               fontFamily: "'Nunito', sans-serif",
-              fontSize: 9,
+              fontSize: isDesktop ? 11 : 9,
               letterSpacing: 1.5,
               textTransform: "uppercase",
               color: HC.orange,
@@ -4597,7 +4617,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
             <div style={{
               fontFamily: "'Playfair Display', serif",
-              fontSize: 22,
+              fontSize: isDesktop ? 30 : 22,
               fontWeight: 800,
               color: "#fff",
               margin: "2px 0 6px",
@@ -4606,7 +4626,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             </div>
             <div style={{
               fontFamily: "'Nunito', sans-serif",
-              fontSize: 11.5,
+              fontSize: isDesktop ? 14 : 11.5,
               fontWeight: 700,
               color: "#F6EFE1",
               lineHeight: 1.35,
@@ -4618,18 +4638,18 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
             <div style={{
               display: "inline-block",
               fontFamily: "'Nunito', sans-serif",
-              fontSize: 11,
+              fontSize: isDesktop ? 13 : 11,
               fontWeight: 800,
               color: HC.brown,
               background: HC.orange,
-              padding: "3px 9px",
+              padding: isDesktop ? "4px 12px" : "3px 9px",
               borderRadius: 20,
               marginBottom: 10,
             }}>
               Now starts at ₹{planConfig.prices.gold}
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 7 : 5, marginBottom: isDesktop ? 16 : 12 }}>
               {[
                 { text: "Premium sabji every day", tag: true },
                 { text: "Desi ghee chapatis / parathas" },
@@ -4648,7 +4668,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                   </div>
                   <span style={{
                     fontFamily: "'Nunito', sans-serif",
-                    fontSize: 12,
+                    fontSize: isDesktop ? 14 : 12,
                     fontWeight: 700,
                     color: "#F6EFE1",
                   }}>
@@ -4658,7 +4678,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <span style={{
                       background: HC.orange,
                       color: HC.brown,
-                      fontSize: 6.5,
+                      fontSize: isDesktop ? 8.5 : 6.5,
                       fontWeight: 800,
                       padding: "2px 6px",
                       borderRadius: 20,
@@ -4680,9 +4700,9 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                 color: "#fff",
                 border: "none",
                 borderRadius: 10,
-                padding: "10px 0",
+                padding: isDesktop ? "13px 0" : "10px 0",
                 fontFamily: "'Nunito', sans-serif",
-                fontSize: 13,
+                fontSize: isDesktop ? 15 : 13,
                 fontWeight: 800,
                 cursor: "pointer",
               }}
@@ -4692,38 +4712,39 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
         </div>
       </div>
+      </div>
 
       {/* ═══════ SECTION 4 — WHY CHOOSE HOMELY TIFFINS ═══════ */}
-      <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
+      <div style={{ maxWidth: secW, margin: isDesktop ? "48px auto 0" : "28px auto 0", padding: "0 14px" }}>
+        <div style={{ textAlign: "center", marginBottom: isDesktop ? 22 : 16 }}>
           <div style={{
             fontFamily: "'Playfair Display', Georgia, serif",
-            fontWeight: 800, fontSize: 22, color: HC.brown, lineHeight: 1.2,
+            fontWeight: 800, fontSize: isDesktop ? 30 : 22, color: HC.brown, lineHeight: 1.2,
           }}>
             Why Choose <span style={{ color: HC.orange }}>Homely Tiffins?</span>
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: isDesktop ? 18 : 8 }}>
           {[
             { icon: "🏠", desc: "Home cooked by Anita Aunty" },
             { icon: "🌿", desc: "Fresh and quality ingredients" },
-            { icon: <VegDishIcon variant="katori" size={30} />, desc: "Fresh food with no preservatives" },
+            { icon: <VegDishIcon variant="katori" size={isDesktop ? 44 : 30} />, desc: "Fresh food with no preservatives" },
             { icon: "🛵", desc: "Delivered hot with care. Daily" },
           ].map((r, i) => (
             <div key={i} style={{
-              background: "#fff", borderRadius: 14, padding: "12px 8px 10px",
+              background: "#fff", borderRadius: isDesktop ? 18 : 14, padding: isDesktop ? "24px 16px 20px" : "12px 8px 10px",
               border: `1px solid ${HC.dash}`, boxShadow: "0 3px 10px rgba(59, 42, 26, 0.04)",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: isDesktop ? 12 : 8, textAlign: "center",
             }}>
               <div style={{
-                width: 44, height: 44, borderRadius: 12, background: HC.cream,
+                width: isDesktop ? 64 : 44, height: isDesktop ? 64 : 44, borderRadius: isDesktop ? 16 : 12, background: HC.cream,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24, lineHeight: 1,
+                fontSize: isDesktop ? 34 : 24, lineHeight: 1,
               }}>{r.icon}</div>
               <div style={{
                 fontFamily: "'Nunito', sans-serif",
-                fontSize: 9.5, fontWeight: 700, color: HC.brown, lineHeight: 1.25,
+                fontSize: isDesktop ? 14.5 : 9.5, fontWeight: 700, color: HC.brown, lineHeight: 1.25,
               }}>{r.desc}</div>
             </div>
           ))}
@@ -4731,19 +4752,19 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       </div>
 
       {/* ═══════ SECTION 5 — MEET ANITA AUNTY ═══════ */}
-      <div style={{ maxWidth: 420, margin: "28px auto 0", padding: "0 14px" }}>
+      <div style={{ maxWidth: secW, margin: isDesktop ? "48px auto 0" : "28px auto 0", padding: "0 14px" }}>
         <div style={{
           background: "#FBF3E3", borderRadius: 22,
           border: `1.5px solid ${HC.brown}`, boxShadow: "0 6px 18px rgba(59, 42, 26, 0.10)",
           overflow: "hidden", display: "grid",
-          gridTemplateColumns: "1fr 1fr", gridTemplateRows: "auto auto",
+          gridTemplateColumns: isDesktop ? "380px 1fr" : "1fr 1fr", gridTemplateRows: "auto auto",
         }}>
-          <div style={{ padding: "12px 6px 12px 12px" }}>
+          <div style={isDesktop ? { padding: 18, gridRow: "1 / span 2" } : { padding: "12px 6px 12px 12px" }}>
             <img
               src={AUNTY_SRC}
               alt="Anita Aunty in her kitchen"
               style={{
-                width: "100%", height: 130, objectFit: "cover", objectPosition: "center 25%",
+                width: "100%", height: isDesktop ? "100%" : 130, minHeight: isDesktop ? 300 : undefined, objectFit: "cover", objectPosition: "center 25%",
                 display: "block", borderRadius: 14, border: `2px solid ${HC.brown}`,
                 boxShadow: "0 3px 10px rgba(59, 42, 26, 0.15)",
               }}
@@ -4751,29 +4772,29 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           </div>
 
           <div style={{
-            padding: "18px 16px",
-            display: "flex", flexDirection: "column", justifyContent: "center",
+            padding: isDesktop ? "34px 36px 0 18px" : "18px 16px",
+            display: "flex", flexDirection: "column", justifyContent: isDesktop ? "flex-end" : "center",
           }}>
             <div style={{
               fontFamily: "'Playfair Display', Georgia, serif",
-              fontWeight: 800, fontSize: 20, color: HC.brown, lineHeight: 1.15,
+              fontWeight: 800, fontSize: isDesktop ? 34 : 20, color: HC.brown, lineHeight: 1.15,
             }}>
               Meet <span style={{ color: HC.orange }}>Anita Aunty</span>
             </div>
             <div style={{
               fontFamily: "'Dancing Script', cursive",
-              fontSize: 16, color: HC.orange, marginTop: 4, lineHeight: 1.2,
+              fontSize: isDesktop ? 22 : 16, color: HC.orange, marginTop: 4, lineHeight: 1.2,
             }}>the heart of the kitchen ❤️</div>
             <div style={{ width: 32, height: 2, background: HC.orange, borderRadius: 2, marginTop: 8 }} />
           </div>
 
           <div style={{
-            gridColumn: "1 / -1", padding: "16px 18px 18px",
-            borderTop: `1px dashed ${HC.dash}`,
+            gridColumn: isDesktop ? 2 : "1 / -1", padding: isDesktop ? "18px 36px 34px 18px" : "16px 18px 18px",
+            borderTop: isDesktop ? "none" : `1px dashed ${HC.dash}`,
           }}>
             <div style={{
               fontFamily: "'Nunito', sans-serif",
-              fontSize: 12, color: HC.brown, lineHeight: 1.6,
+              fontSize: isDesktop ? 16 : 12, color: HC.brown, lineHeight: isDesktop ? 1.75 : 1.6,
             }}>
               For as long as she can remember, Anita Aunty has found joy in cooking for others.
               What began as preparing meals for family and friends has grown into Homely Tiffins—a
@@ -4785,28 +4806,28 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
       </div>
 
       {/* ═══════ SECTION 6 — TESTIMONIALS ═══════ */}
-      <div style={{ maxWidth: 420, margin: "32px auto 0" }}>
-        <div style={{ textAlign: "center", marginBottom: 16, padding: "0 14px" }}>
+      <div style={{ maxWidth: secW, margin: isDesktop ? "48px auto 0" : "32px auto 0" }}>
+        <div style={{ textAlign: "center", marginBottom: isDesktop ? 22 : 16, padding: "0 14px" }}>
           <div style={{
             fontFamily: "'Playfair Display', Georgia, serif",
-            fontWeight: 800, fontSize: 22, color: HC.brown, lineHeight: 1.2,
+            fontWeight: 800, fontSize: isDesktop ? 30 : 22, color: HC.brown, lineHeight: 1.2,
           }}>Loved by our <span style={{ color: HC.orange }}>Neighbours</span></div>
           <div style={{
             fontFamily: "'Dancing Script', cursive",
-            fontSize: 16, color: HC.orange, marginTop: 4,
+            fontSize: isDesktop ? 21 : 16, color: HC.orange, marginTop: 4,
           }}>what the society is saying</div>
         </div>
 
-        <div className="h5-testimonials" style={{
+        <div className="h5-testimonials" style={isDesktop ? { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, padding: "4px 14px 16px" } : {
           display: "flex", gap: 12, overflowX: "auto",
           padding: "4px 14px 16px", scrollSnapType: "x mandatory",
           WebkitOverflowScrolling: "touch",
         }}>
-          {shownTestimonials.map((t, i) => (
+          {reviews.map((t, i) => (
             <div key={i} style={{
-              background: "#fff", borderRadius: 18, padding: "16px 16px 14px",
+              background: "#fff", borderRadius: 18, padding: isDesktop ? 22 : "16px 16px 14px",
               border: `1px solid ${HC.dash}`, boxShadow: "0 4px 14px rgba(59, 42, 26, 0.06)",
-              minWidth: 260, maxWidth: 260, scrollSnapAlign: "start",
+              ...(isDesktop ? {} : { minWidth: 260, maxWidth: 260, scrollSnapAlign: "start" }),
               display: "flex", flexDirection: "column", gap: 10, flexShrink: 0,
             }}>
               <div style={{
@@ -4817,7 +4838,7 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
 
               <div style={{
                 fontFamily: "'Nunito', sans-serif",
-                fontSize: 12, color: HC.brown, lineHeight: 1.5, fontStyle: "italic",
+                fontSize: isDesktop ? 14 : 12, color: HC.brown, lineHeight: 1.5, fontStyle: "italic", flex: isDesktop ? 1 : undefined,
               }}>{t.quote}</div>
 
               <div style={{ display: "flex", gap: 2 }}>
@@ -4848,8 +4869,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
           ))}
         </div>
 
-        {/* 5 scroll hint dots */}
-        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: -4 }}>
+        {/* 5 scroll hint dots (phones only — laptops show 3 reviews without scrolling) */}
+        <div style={{ display: isDesktop ? "none" : "flex", justifyContent: "center", gap: 6, marginTop: -4 }}>
           <div style={{ width: 20, height: 4, borderRadius: 2, background: HC.orange }} />
           {[0, 0, 0, 0].map((_, i) => (
             <div key={i} style={{ width: 6, height: 4, borderRadius: 2, background: HC.dash }} />
