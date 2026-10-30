@@ -886,8 +886,9 @@ function getTrackingContext({ touch = true } = {}) {
       isReturning,
       kitchenOpen: trackingKitchenOpen,
       referrer: referrer.slice(0, 120),
-      utmSource: (params.get("utm_source") || "").slice(0, 60).toLowerCase(),
-      utmCampaign: (params.get("utm_campaign") || "").slice(0, 60).toLowerCase(),
+      // ?from=<codeword> is the short campaign link (homelytiffins.com/?from=roti)
+      utmSource: (params.get("utm_source") || (params.get("from") ? "codeword" : "")).slice(0, 60).toLowerCase(),
+      utmCampaign: (params.get("utm_campaign") || params.get("from") || "").slice(0, 60).toLowerCase(),
       lastSeen: now,
     };
     isNew = true;
