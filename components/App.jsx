@@ -2965,7 +2965,7 @@ const HomeStyle = () => (
 // the image, so transparent buttons sit over them. public/rewards-banner.jpg
 // is the same art without the ✕, placed on the home page above Homely Gold.
 // ─────────────────────────────────────────────
-const REWARDS_ALT = "Introducing Homely Reward Points for all. Get reward points on every purchase. Coming soon, next month.";
+const REWARDS_ALT = "Introducing Homely Reward Points for all. Get reward points on every purchase. Coming soon, this month.";
 const REWARDS_RATIO = 720 / 1004;
 
 function RewardsPopup({ onClose }) {
