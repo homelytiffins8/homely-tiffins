@@ -482,6 +482,7 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
   const regular = fav?.regular;
   const loy = account.rewards?.loyalty;
   const vouchers = (loy?.vouchers || []).filter(v => v.status === "available");
+  const referralOn = account.rewards?.referral?.enabled !== false;
   const due = Number(ledger?.balance || 0);
   const hasAddress = !!(p.tower && p.flat);
   const ks = KITCHEN_STATE[kitchenState] || KITCHEN_STATE.closed;
@@ -539,9 +540,9 @@ export function MyHomely({ supabase, account, towers = [], canOrder, kitchenStat
   const rewardsRow = (
     <DashRow icon="gift" onClick={() => setView("rewards")} style={{ background: "#FCEFD6", borderColor: "#F2DCB4", ...(wide ? { marginBottom: 0 } : {}) }} divider="#EBCF9F"
       title="Homely Rewards"
-      value={!account.rewards ? "…" : loy?.enabled ? `${loy.balance} point${loy.balance === 1 ? "" : "s"}` : "Refer & earn"}
+      value={!account.rewards ? "…" : loy?.enabled ? `${loy.balance} point${loy.balance === 1 ? "" : "s"}` : referralOn ? "Refer & earn" : "Your rewards"}
       note={loy?.enabled && loy.balance > 0 ? `≈ ${fmtINR(Math.floor(loy.balance * loy.pointValue + 1e-9))}` : null}
-      sub={vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready · View rewards` : loy?.enabled ? "View points & rewards" : "View your referral code"} />
+      sub={vouchers.length ? `${vouchers.length} free meal${vouchers.length > 1 ? "s" : ""} ready · View rewards` : loy?.enabled ? "View points & rewards" : referralOn ? "View your referral code" : "View your rewards"} />
   );
   const creditRow = (
     <DashRow icon="wallet" onClick={() => setView("ledger")} style={wide ? { marginBottom: 0 } : undefined}
@@ -1122,17 +1123,13 @@ function RewardsView({ rewards, onBack, onOrder, wide = false, backLabel, side }
         </Card>
       )}
 
-      {/* Referral — the code is always shown; the offer text only while the programme is on */}
-      {(
+      {/* Referral — only while the programme is on: a code shared while it's off would be rejected at checkout */}
+      {ref.enabled !== false && (
         <Card style={{ background: "#FFF6EC", borderColor: HC.orange }}>
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🎁 Refer a friend</div>
           <div style={{ fontSize: 12.5, color: HC.brownMid, lineHeight: 1.5, marginBottom: 10 }}>
-            {ref.enabled === false
-              ? "Share Homely with friends using your personal code."
-              : <>
-                  {ref.referredDiscount ? `Friends save ₹${ref.referredDiscount} on their first order` : "Share Homely with friends"}
-                  {ref.referrerReward ? ` and you get ₹${ref.referrerReward} credit when it's delivered.` : "."}
-                </>}
+            {ref.referredDiscount ? `Friends save ₹${ref.referredDiscount} on their first order` : "Share Homely with friends"}
+            {ref.referrerReward ? ` and you get ₹${ref.referrerReward} credit when it's delivered.` : "."}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <code style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, letterSpacing: 1.5, background: "#fff", color: HC.orangeDeep, padding: "9px 12px", borderRadius: 10, border: `1.5px dashed ${HC.orange}` }}>{code}</code>
