@@ -3786,7 +3786,12 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
                     <span>₹{live.originalTotal || (live.total + live.discount)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#2E7D32", fontWeight: 600 }}>
-                    <span>{live.promoLabel ? `Promo (${live.promoCode})` : live.referralCode ? `Referral (${live.referralCode})` : "Discount"}</span>
+                    <span>{[
+                      live.promoCode && `Promo (${live.promoCode})`,
+                      live.referralCode && `Referral (${live.referralCode})`,
+                      live.voucherId && "Free meal",
+                      (live.pointsRedeemed || live.redeemPoints) > 0 && `Homely Points (${live.pointsRedeemed || live.redeemPoints})`,
+                    ].filter(Boolean).join(" + ") || "Discount"}</span>
                     <span>−₹{live.discount}</span>
                   </div>
                 </>
