@@ -3158,6 +3158,8 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // My Homely customer account (phone login). Guests never need it — the
   // menu and checkout work exactly as before without signing in.
   const account = useCustomerAccount(supabase);
+  // Keeps the login screen up after the OTP signs the customer in, so they can set a password.
+  const [homelyLoginHold, setHomelyLoginHold] = useState(false);
   const [showContact, setShowContact] = useState(false);
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
   useEffect(() => {
@@ -3673,8 +3675,10 @@ function CustomerApp({ menu, planConfig, contactInfo, orders, ordersHistory = []
   // ── MY HOMELY (customer account) ──
   if (step === "homely") {
     if (!account.ready) return null;
-    if (!account.signedIn) {
-      return <MyHomelyLogin supabase={supabase} wide={isDesktop} onSignedIn={() => account.refresh()} onClose={() => setStep("home")} />;
+    if (!account.signedIn || homelyLoginHold) {
+      return <MyHomelyLogin supabase={supabase} wide={isDesktop} onHold={setHomelyLoginHold}
+        onSignedIn={() => { setHomelyLoginHold(false); account.refresh(); }}
+        onClose={() => { setHomelyLoginHold(false); setStep("home"); }} />;
     }
     const disableNotifications = async () => {
       setNotifBusy(true);

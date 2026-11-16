@@ -239,7 +239,9 @@ const inputStyle = {
 // LOGIN
 // ─────────────────────────────────────────────
 // wide (laptop): one card — logo and what My Homely offers on the left, the form on the right.
-export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← Menu", wide = false }) {
+// onHold(true) fires just before the OTP is verified: the session appears during verifyOtp, and a
+// parent that swaps the login out for the dashboard on sign-in must keep it up for the password step.
+export function MyHomelyLogin({ supabase, onSignedIn, onClose, onHold, backLabel = "← Menu", wide = false }) {
   const [step, setStep] = useState("phone"); // phone | otp | password
   const [phoneInput, setPhoneInput] = useState("");
   const [password, setPassword] = useState("");
@@ -292,9 +294,10 @@ export function MyHomelyLogin({ supabase, onSignedIn, onClose, backLabel = "← 
     setError("");
     if (!/^\d{6}$/.test(otp.trim())) { setError("Enter the 6-digit code from the SMS."); return; }
     setBusy(true);
+    onHold?.(true);
     const { error: err } = await supabase.auth.verifyOtp({ phone: e164, token: otp.trim(), type: "sms" });
     setBusy(false);
-    if (err) { setError(/expired|invalid/i.test(err.message) ? "That code is wrong or has expired. Try again or resend." : err.message); return; }
+    if (err) { onHold?.(false); setError(/expired|invalid/i.test(err.message) ? "That code is wrong or has expired. Try again or resend." : err.message); return; }
     setInfo(""); setStep("password");
   };
 
