@@ -6039,7 +6039,7 @@ function BatchBoard({ orders, onAdvanceMany }) {
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+            <div style={{ flex: "1 1 100%", minWidth: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 4 }}>MAKE IN TOTAL</div>
               {cookingView.pooled.map(([name, qty]) => (
                 <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -6062,26 +6062,40 @@ function BatchBoard({ orders, onAdvanceMany }) {
               )}
             </div>
 
-            <div style={{ flex: "1.4 1 260px", minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 4 }}>PACK AND TICK</div>
+            <div style={{ flex: "1 1 100%", minWidth: 0, borderTop: `2px solid ${C.border}`, paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 4 }}>PACK AND TICK · full order for each tiffin</div>
               {cookingView.list.map(o => {
                 const already = o.status !== "preparing";
                 const done = already || !!cooking.packed[o.id];
                 return (
-                  <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 2px", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: done ? C.inkLight : C.ink, textDecoration: done ? "line-through" : "none" }}>
-                        {o.tower} · {o.flat} · {o.customerName}{" "}
+                  <div key={o.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, padding: "10px 2px", borderBottom: `1px solid ${C.border}`, opacity: done ? 0.6 : 1 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: C.ink, textDecoration: done ? "line-through" : "none" }}>
+                        {o.tower} · Flat {o.flat} · {o.customerName}{" "}
                         {(cooking.added || []).includes(o.id) && pill("#E3F2FD", "#0D47A1", "added")}{" "}
                         {already && pill(C.greenLight, C.green, `already ${o.status}`)}
                       </div>
-                      <div style={{ fontSize: 12, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{itemsLine(o)}</div>
+                      {/* Every dish in full, one per line — the packer needs the whole order here. */}
+                      <div style={{ marginTop: 4 }}>
+                        {(o.items || []).map((i, idx) => (
+                          <div key={i.id || idx} style={{ display: "flex", gap: 6, fontSize: 13, lineHeight: 1.45, color: C.ink, padding: "1px 0" }}>
+                            <span style={{ fontWeight: 900, color: C.saffron, minWidth: 26, flex: "none" }}>{i.qty}×</span>
+                            <span style={{ wordBreak: "break-word" }}>{i.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {o.specialInstructions?.trim() && (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#0D47A1", marginTop: 4 }}>📝 {o.specialInstructions.trim()}</div>
+                      )}
+                      {o.deliveryInstructions?.trim() && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginTop: 2 }}>🚪 {o.deliveryInstructions.trim()}</div>
+                      )}
                     </div>
                     <button
                       onClick={() => !already && togglePacked(o.id)}
                       aria-label={done ? "Mark not packed" : "Mark packed"}
                       style={{
-                        width: 30, height: 30, flex: "none", borderRadius: 8, cursor: already ? "default" : "pointer",
+                        width: 36, height: 36, flex: "none", borderRadius: 8, cursor: already ? "default" : "pointer",
                         border: `2px solid ${done ? C.green : C.border}`, background: done ? C.greenLight : C.white,
                         color: C.green, fontSize: 16, fontWeight: 900, padding: 0,
                       }}
