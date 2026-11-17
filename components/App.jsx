@@ -6575,12 +6575,29 @@ function BatchBoard({ orders, onAdvanceMany }) {
   const cancelBatch = () => {
     if (!cooking) return;
     if (!window.confirm(`Unlock batch ${cooking.no}? Its tiffins go back to the group card.`)) return;
-    setStore(s => ({ ...s, batches: s.batches.filter(b => b.id !== cooking.id) }));
+    setStore(s => ({
+      ...s,
+      // Give the number back if it was the latest, so batches stay 1, 2, 3…
+      nextNo: cooking.no === s.nextNo - 1 ? cooking.no : s.nextNo,
+      batches: s.batches.filter(b => b.id !== cooking.id),
+    }));
   };
-  const addToBatch = (orderId) =>
-    update(cooking.id, b => ({ ...b, orderIds: [...b.orderIds, orderId], added: [...(b.added || []), orderId] }));
-  const skipForNext = (orderId) =>
-    update(cooking.id, b => ({ ...b, skipped: [...(b.skipped || []), orderId] }));
+  // After Add/Keep the next new tiffin slides into the same spot, so a
+  // double tap would decide for it too. Hold the buttons briefly.
+  const [promptHold, setPromptHold] = useState(false);
+  const holdPrompt = () => { setPromptHold(true); setTimeout(() => setPromptHold(false), 800); };
+  const addToBatch = (orderId) => {
+    if (promptHold) return;
+    holdPrompt();
+    update(cooking.id, b => b.orderIds.includes(orderId) ? b
+      : ({ ...b, orderIds: [...b.orderIds, orderId], added: [...(b.added || []), orderId] }));
+  };
+  const skipForNext = (orderId) => {
+    if (promptHold) return;
+    holdPrompt();
+    update(cooking.id, b => (b.skipped || []).includes(orderId) ? b
+      : ({ ...b, skipped: [...(b.skipped || []), orderId] }));
+  };
   const togglePacked = (orderId) => {
     setWarn("");
     update(cooking.id, b => ({ ...b, packed: { ...b.packed, [orderId]: !b.packed[orderId] } }));
@@ -6589,22 +6606,31 @@ function BatchBoard({ orders, onAdvanceMany }) {
   // Orders of a batch as they are right now (rejected/vanished ones dropped).
   const liveOrders = (b) => b.orderIds.map(id => byId.get(id)).filter(o => o && o.status !== "rejected");
 
+  // A quick double tap must not run a status write (and customer push) twice:
+  // the second tap lands before React re-renders with busy set, so guard
+  // with a ref that flips synchronously.
+  const busyRef = useRef(false);
   const markReady = async () => {
+    if (busyRef.current) return;
     const list = liveOrders(cooking);
     const toPack = list.filter(o => o.status === "preparing" && !cooking.packed[o.id]);
     if (toPack.length) { setWarn(`Tick every tiffin before marking ready (${toPack.length} left)`); return; }
+    busyRef.current = true;
     setWarn(""); setBusy(cooking.id);
     try {
       await onAdvanceMany(list.filter(o => o.status === "preparing").map(o => o.id), "ready");
       update(cooking.id, b => ({ ...b, status: "ready", readyAt: new Date().toISOString() }));
-    } finally { setBusy(null); }
+    } finally { busyRef.current = false; setBusy(null); }
   };
   const dispatchBatch = async (b) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(b.id);
     try {
-      await onAdvanceMany(liveOrders(b).filter(o => o.status === "ready").map(o => o.id), "dispatched");
-      update(b.id, x => ({ ...x, status: "dispatched", dispatchedAt: new Date().toISOString() }));
-    } finally { setBusy(null); }
+      const toSend = liveOrders(b).filter(o => o.status === "ready").map(o => o.id);
+      await onAdvanceMany(toSend, "dispatched");
+      update(b.id, x => ({ ...x, status: "dispatched", dispatchedAt: new Date().toISOString(), sentCount: toSend.length }));
+    } finally { busyRef.current = false; setBusy(null); }
   };
 
   const groupLabel = (key) => BATCH_GROUPS.find(g => g.key === key)?.label || key;
@@ -6672,8 +6698,8 @@ function BatchBoard({ orders, onAdvanceMany }) {
             {asking.specialInstructions?.trim() && <div style={{ color: "#0D47A1", fontWeight: 700 }}>📝 {asking.specialInstructions.trim()}</div>}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="ht-btn btn-primary btn-sm" onClick={() => addToBatch(asking.id)}>➕ Add to batch {cooking.no}</button>
-            <button className="ht-btn btn-secondary btn-sm" onClick={() => skipForNext(asking.id)}>⏭ Keep for next trip</button>
+            <button className="ht-btn btn-primary btn-sm" disabled={promptHold} style={promptHold ? { opacity: 0.5 } : undefined} onClick={() => addToBatch(asking.id)}>➕ Add to batch {cooking.no}</button>
+            <button className="ht-btn btn-secondary btn-sm" disabled={promptHold} style={promptHold ? { opacity: 0.5 } : undefined} onClick={() => skipForNext(asking.id)}>⏭ Keep for next trip</button>
           </div>
         </div>
       )}
@@ -6798,7 +6824,7 @@ function BatchBoard({ orders, onAdvanceMany }) {
           </button>
           {showDone && doneBatches.slice().reverse().map(b => (
             <div key={b.id} style={{ fontSize: 12, color: C.inkMid, padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>
-              Batch {b.no} · {groupLabel(b.group)} · {b.orderIds.length} tiffin{b.orderIds.length !== 1 ? "s" : ""}
+              Batch {b.no} · {groupLabel(b.group)} · {b.sentCount ?? b.orderIds.length} tiffin{(b.sentCount ?? b.orderIds.length) !== 1 ? "s" : ""}
               {b.dispatchedAt ? ` · sent ${fmtTime(b.dispatchedAt)}` : ""}
             </div>
           ))}
