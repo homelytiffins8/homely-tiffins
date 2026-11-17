@@ -6477,6 +6477,336 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
 }
 
 // ─────────────────────────────────────────────
+// BATCH BOARD  (kitchen: cook + send tiffins one tower group at a time)
+// ─────────────────────────────────────────────
+// Shows only accepted (Preparing) orders, grouped by PREP_GROUPS. The kitchen
+// locks a group into a numbered batch, ticks tiffins as they're packed, then
+// "Mark batch ready" moves every order in it to Ready, and "Dispatch batch"
+// moves them to Dispatched — through the same status write the Orders tab
+// uses (timestamps + customer push). Accept/reject and Delivered stay in the
+// Orders tab. A new Preparing order for the cooking group asks: add to this
+// batch, or keep for the next trip.
+//
+// Batch bookkeeping (which orders are in which batch, ticks, skips) is kept
+// in this device's localStorage for today only — it's a kitchen-laptop tool.
+// Order STATUSES are always the real ones from the orders table.
+const BATCH_STORE_KEY = "ht_kitchen_batches_v1";
+const BATCH_GROUPS = PREP_GROUPS.filter(g => g.key !== "all");
+
+function batchGroupOf(tower) {
+  const n = towerNum(tower);
+  const g = BATCH_GROUPS.find(x => n >= x.min && n <= x.max);
+  return g ? g.key : BATCH_GROUPS[0].key;
+}
+function loadBatchStore() {
+  const empty = { date: todayStr(), nextNo: 1, batches: [] };
+  try {
+    const raw = JSON.parse(localStorage.getItem(BATCH_STORE_KEY) || "null");
+    if (!raw || raw.date !== todayStr() || !Array.isArray(raw.batches)) return empty;
+    return raw;
+  } catch { return empty; }
+}
+function itemsLine(order) {
+  return (order.items || []).map(i => `${i.name} ×${i.qty}`).join(", ");
+}
+
+function BatchBoard({ orders, onAdvanceMany }) {
+  const [store, setStore] = useState(loadBatchStore);
+  const [busy, setBusy] = useState(null);       // batch id being written
+  const [warn, setWarn] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const [showDone, setShowDone] = useState(false);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  // New day → start fresh (the laptop is often left open overnight).
+  useEffect(() => {
+    if (store.date !== todayStr()) setStore({ date: todayStr(), nextNo: 1, batches: [] });
+  }, [now]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    try { localStorage.setItem(BATCH_STORE_KEY, JSON.stringify(store)); } catch { /* storage full/blocked */ }
+  }, [store]);
+
+  const update = (batchId, fn) =>
+    setStore(s => ({ ...s, batches: s.batches.map(b => b.id === batchId ? fn(b) : b) }));
+
+  const byId = new Map((orders || []).map(o => [o.id, o]));
+  const inSomeBatch = new Set(store.batches.flatMap(b => b.orderIds));
+  const cooking = store.batches.find(b => b.status === "cooking") || null;
+  const readyBatches = store.batches.filter(b => b.status === "ready");
+  const doneBatches = store.batches.filter(b => b.status === "dispatched");
+
+  // Preparing orders that aren't in any batch yet.
+  const loose = (orders || [])
+    .filter(o => o.status === "preparing" && !inSomeBatch.has(o.id))
+    .sort((a, b) => new Date(a.preparingAt || a.createdAt) - new Date(b.preparingAt || b.createdAt));
+
+  // For the cooking group: new orders the kitchen hasn't decided on yet.
+  const askQueue = cooking
+    ? loose.filter(o => batchGroupOf(o.tower) === cooking.group && !(cooking.skipped || []).includes(o.id))
+    : [];
+  const asking = askQueue[0] || null;
+
+  const waitMin = o => Math.max(0, Math.floor((now - new Date(o.preparingAt || o.createdAt).getTime()) / 60000));
+  const groupCards = BATCH_GROUPS.map(g => {
+    const q = loose.filter(o => batchGroupOf(o.tower) === g.key && !(cooking && cooking.group === g.key && !(cooking.skipped || []).includes(o.id)));
+    return { ...g, queue: q, oldest: q.length ? waitMin(q[0]) : 0, isCooking: cooking?.group === g.key };
+  });
+  const makeNext = groupCards
+    .filter(g => !g.isCooking && g.queue.length)
+    .sort((a, b) => b.oldest - a.oldest || b.queue.length - a.queue.length)[0]?.key || null;
+
+  const startBatch = (groupKey) => {
+    if (cooking) return;
+    const ids = loose.filter(o => batchGroupOf(o.tower) === groupKey).map(o => o.id);
+    if (!ids.length) return;
+    setWarn("");
+    setStore(s => ({
+      ...s,
+      nextNo: s.nextNo + 1,
+      batches: [...s.batches, {
+        id: `b${Date.now()}`, no: s.nextNo, group: groupKey, status: "cooking",
+        lockedAt: new Date().toISOString(), orderIds: ids, added: [], skipped: [], packed: {},
+      }],
+    }));
+  };
+  const cancelBatch = () => {
+    if (!cooking) return;
+    if (!window.confirm(`Unlock batch ${cooking.no}? Its tiffins go back to the group card.`)) return;
+    setStore(s => ({ ...s, batches: s.batches.filter(b => b.id !== cooking.id) }));
+  };
+  const addToBatch = (orderId) =>
+    update(cooking.id, b => ({ ...b, orderIds: [...b.orderIds, orderId], added: [...(b.added || []), orderId] }));
+  const skipForNext = (orderId) =>
+    update(cooking.id, b => ({ ...b, skipped: [...(b.skipped || []), orderId] }));
+  const togglePacked = (orderId) =>
+    update(cooking.id, b => ({ ...b, packed: { ...b.packed, [orderId]: !b.packed[orderId] } }));
+
+  // Orders of a batch as they are right now (rejected/vanished ones dropped).
+  const liveOrders = (b) => b.orderIds.map(id => byId.get(id)).filter(o => o && o.status !== "rejected");
+
+  const markReady = async () => {
+    const list = liveOrders(cooking);
+    const toPack = list.filter(o => o.status === "preparing" && !cooking.packed[o.id]);
+    if (toPack.length) { setWarn(`Tick every tiffin before marking ready (${toPack.length} left)`); return; }
+    setWarn(""); setBusy(cooking.id);
+    try {
+      await onAdvanceMany(list.filter(o => o.status === "preparing").map(o => o.id), "ready");
+      update(cooking.id, b => ({ ...b, status: "ready", readyAt: new Date().toISOString() }));
+    } finally { setBusy(null); }
+  };
+  const dispatchBatch = async (b) => {
+    setBusy(b.id);
+    try {
+      await onAdvanceMany(liveOrders(b).filter(o => o.status === "ready").map(o => o.id), "dispatched");
+      update(b.id, x => ({ ...x, status: "dispatched", dispatchedAt: new Date().toISOString() }));
+    } finally { setBusy(null); }
+  };
+
+  const groupLabel = (key) => BATCH_GROUPS.find(g => g.key === key)?.label || key;
+  const pill = (bg, color, text) => (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: bg, color, whiteSpace: "nowrap" }}>{text}</span>
+  );
+
+  // ── cooking batch derived view ──
+  let cookingView = null;
+  if (cooking) {
+    const list = liveOrders(cooking);
+    const stillCooking = list.filter(o => o.status === "preparing");
+    const { pooled, separate } = computePrep(stillCooking);
+    const packedCount = list.filter(o => o.status !== "preparing" || cooking.packed[o.id]).length;
+    cookingView = { list, pooled, separate, packedCount };
+  }
+
+  return (
+    <div style={{ padding: "20px 0" }}>
+      {/* Group cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+        {groupCards.map(g => {
+          if (g.isCooking) {
+            return (
+              <div key={g.key} className="ht-card" style={{ padding: "12px 10px", background: C.saffronLight, borderColor: C.saffron }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: C.saffron }}>{g.label}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.saffron, marginTop: 2 }}>👨‍🍳 Cooking · batch {cooking.no}</div>
+                <div style={{ fontSize: 11, color: C.inkMid, marginTop: 6 }}>
+                  {g.queue.length ? `${g.queue.length} kept for next trip` : "No new orders"}
+                </div>
+              </div>
+            );
+          }
+          const isNext = makeNext === g.key;
+          return (
+            <div key={g.key} className="ht-card" style={{ padding: "12px 10px", borderColor: isNext ? "#E0A800" : C.border, borderWidth: isNext ? 2 : 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{g.label}</span>
+                {isNext && pill("#FFF3CD", "#856404", "Make next")}
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.ink, marginTop: 4 }}>
+                {g.queue.length} <span style={{ fontSize: 11, fontWeight: 600, color: C.inkMid }}>tiffin{g.queue.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div style={{ fontSize: 11, color: g.oldest > 20 ? C.red : C.inkMid, fontWeight: 600, marginBottom: 8 }}>
+                {g.queue.length ? `⏱ oldest waiting ${g.oldest} min` : "Nothing waiting"}
+              </div>
+              {g.queue.length > 0 && !cooking && (
+                <button className={`ht-btn btn-sm ${isNext ? "btn-primary" : "btn-secondary"}`} style={{ width: "100%" }} onClick={() => startBatch(g.key)}>
+                  🔒 Start batch
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add-or-skip prompt for a new tiffin of the cooking group */}
+      {cooking && asking && (
+        <div className="ht-card slide-in" style={{ padding: 14, marginBottom: 14, background: "#FFF3CD", borderColor: "#E0A800", borderWidth: 2 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#856404" }}>
+            🔔 New tiffin for batch {cooking.no}'s towers{askQueue.length > 1 ? ` (+${askQueue.length - 1} more)` : ""}
+          </div>
+          <div style={{ fontSize: 13, color: "#5C4300", margin: "4px 0 10px" }}>
+            <strong>{asking.customerName}</strong> · {asking.tower} · Flat {asking.flat} — {itemsLine(asking)}
+            {asking.specialInstructions?.trim() && <div style={{ color: "#0D47A1", fontWeight: 700 }}>📝 {asking.specialInstructions.trim()}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="ht-btn btn-primary btn-sm" onClick={() => addToBatch(asking.id)}>➕ Add to batch {cooking.no}</button>
+            <button className="ht-btn btn-secondary btn-sm" onClick={() => skipForNext(asking.id)}>⏭ Keep for next trip</button>
+          </div>
+        </div>
+      )}
+
+      {/* Cooking batch */}
+      {cooking ? (
+        <div className="ht-card" style={{ padding: 16, marginBottom: 14, borderColor: C.saffron, borderWidth: 2 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>Batch {cooking.no} · {groupLabel(cooking.group)}</span>
+              {pill(C.saffronLight, C.saffron, `🔒 Locked ${fmtTime(cooking.lockedAt)}`)}
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.inkMid }}>
+              {cookingView.packedCount} of {cookingView.list.length} packed
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 4 }}>MAKE IN TOTAL</div>
+              {cookingView.pooled.map(([name, qty]) => (
+                <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{name}</span>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: C.saffron }}>×{qty}</span>
+                </div>
+              ))}
+              {cookingView.separate.map(sep => {
+                const o = byId.get(sep.orderId);
+                return (
+                  <div key={sep.orderId} style={{ background: "#E3F2FD", border: "1px solid #90CAF9", borderRadius: 8, padding: "8px 10px", marginTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: "#0D47A1" }}>Separate · {o?.customerName} ({o?.tower})</div>
+                    <div style={{ fontSize: 12, color: C.ink }}>{sep.items.map(i => `${i.name} ×${i.qty}`).join(", ")}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0D47A1" }}>📝 {sep.note}</div>
+                  </div>
+                );
+              })}
+              {cookingView.pooled.length === 0 && cookingView.separate.length === 0 && (
+                <p style={{ fontSize: 12, color: C.inkLight, padding: "6px 0" }}>Nothing left to cook</p>
+              )}
+            </div>
+
+            <div style={{ flex: "1.4 1 260px", minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 4 }}>PACK AND TICK</div>
+              {cookingView.list.map(o => {
+                const already = o.status !== "preparing";
+                const done = already || !!cooking.packed[o.id];
+                return (
+                  <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 2px", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: done ? C.inkLight : C.ink, textDecoration: done ? "line-through" : "none" }}>
+                        {o.tower} · {o.flat} · {o.customerName}{" "}
+                        {(cooking.added || []).includes(o.id) && pill("#E3F2FD", "#0D47A1", "added")}{" "}
+                        {already && pill(C.greenLight, C.green, `already ${o.status}`)}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.inkMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{itemsLine(o)}</div>
+                    </div>
+                    <button
+                      onClick={() => !already && togglePacked(o.id)}
+                      aria-label={done ? "Mark not packed" : "Mark packed"}
+                      style={{
+                        width: 30, height: 30, flex: "none", borderRadius: 8, cursor: already ? "default" : "pointer",
+                        border: `2px solid ${done ? C.green : C.border}`, background: done ? C.greenLight : C.white,
+                        color: C.green, fontSize: 16, fontWeight: 900, padding: 0,
+                      }}
+                    >{done ? "✓" : ""}</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {warn && <div style={{ fontSize: 12, fontWeight: 700, color: C.red, marginTop: 10 }}>{warn}</div>}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+            <button className="ht-btn btn-ghost btn-sm" onClick={cancelBatch} disabled={busy === cooking.id}>Unlock batch</button>
+            <button className="ht-btn btn-primary" onClick={markReady} disabled={busy === cooking.id}>
+              {busy === cooking.id ? "Saving…" : "📦 Mark batch ready"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="ht-card" style={{ padding: 22, marginBottom: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>No batch cooking</div>
+          <div style={{ fontSize: 12, color: C.inkMid, marginTop: 4 }}>
+            {makeNext ? `Start the group marked "Make next" (${groupLabel(makeNext)}).` : "No accepted orders waiting. Accept new orders in the Orders tab."}
+          </div>
+        </div>
+      )}
+
+      {/* Ready batches waiting for the rider */}
+      {readyBatches.map(b => {
+        const list = liveOrders(b);
+        const toSend = list.filter(o => o.status === "ready");
+        return (
+          <div key={b.id} className="ht-card" style={{ padding: 14, marginBottom: 10, borderColor: "#0D47A1", background: "#F3F8FE" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#0D47A1" }}>📦 Batch {b.no} · {groupLabel(b.group)} · ready</div>
+                <div style={{ fontSize: 12, color: C.inkMid }}>
+                  {toSend.length} tiffin{toSend.length !== 1 ? "s" : ""} waiting for the rider{b.readyAt ? ` · ready since ${fmtTime(b.readyAt)}` : ""}
+                </div>
+              </div>
+              <button className="ht-btn btn-green" onClick={() => dispatchBatch(b)} disabled={busy === b.id}>
+                {busy === b.id ? "Saving…" : "🛵 Dispatch batch"}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: C.ink, marginTop: 8, lineHeight: 1.6 }}>
+              {list.map(o => (
+                <span key={o.id} style={{ display: "inline-block", marginRight: 10, color: o.status === "ready" ? C.ink : C.inkLight }}>
+                  {o.tower}·{o.flat} {o.customerName}{o.status !== "ready" ? ` (${o.status})` : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Today's dispatched batches (collapsed) */}
+      {doneBatches.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <button className="ht-btn btn-ghost btn-sm" onClick={() => setShowDone(v => !v)}>
+            {showDone ? "▾" : "▸"} Dispatched today ({doneBatches.length} batch{doneBatches.length !== 1 ? "es" : ""})
+          </button>
+          {showDone && doneBatches.slice().reverse().map(b => (
+            <div key={b.id} style={{ fontSize: 12, color: C.inkMid, padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>
+              Batch {b.no} · {groupLabel(b.group)} · {b.orderIds.length} tiffin{b.orderIds.length !== 1 ? "s" : ""}
+              {b.dispatchedAt ? ` · sent ${fmtTime(b.dispatchedAt)}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // ANALYTICS PANEL
 // ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
@@ -8539,7 +8869,7 @@ function PinGate({ label, onUnlock }) {
   );
 }
 
-function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, kitchenPause = null, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onPauseKitchen, onExtendPause, onResumeKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, kitchenPause = null, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onAdvanceOrders, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onPauseKitchen, onExtendPause, onResumeKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTabRaw] = useState("orders");
   const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
   // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
@@ -8574,6 +8904,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
   const unreadContactCount = (contactMessages || []).filter(m => !m.read).length;
   const tabs = [
     { id: "orders",   label: "📦 Orders" },
+    { id: "batches",  label: "🧺 Batch board" },
     { id: "menu",     label: "🍽️ Menu" },
     { id: "plans",    label: "📋 Plans" },
     { id: "credit",   label: "📒 Credit" },
@@ -8687,6 +9018,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
       </div>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "0 16px 40px" }}>
         {tab === "orders"    && <OrderDashboard todayOrders={dashboardOrders} onAdvance={onAdvanceOrder} onReject={onRejectOrder} />}
+        {tab === "batches"   && <BatchBoard orders={dashboardOrders} onAdvanceMany={onAdvanceOrders} />}
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
@@ -9619,6 +9951,39 @@ export default function App() {
     }
   }, [todayOrders, referralConfig]);
 
+  // Bulk status move for the Batch board: Preparing → Ready, or
+  // Ready → Dispatched, for many orders in ONE fetch/merge/write. Same rules
+  // as handleAdvanceOrder (server-merged truth, never moves an order
+  // backwards, timestamp stamped once, customer push per order). An order
+  // that's no longer at the expected previous status is left untouched.
+  const handleAdvanceOrders = useCallback(async (orderIds, nextStatus) => {
+    const prevStatus = { ready: "preparing", dispatched: "ready" }[nextStatus];
+    if (!prevStatus || !orderIds || !orderIds.length) return 0;
+    const today = todayStr();
+    const serverOrders = (await loadTodayOrdersFromTable(today)) || [];
+    const localToday = todayOrders.filter(o => o.date === today);
+    const base = mergeOrders(localToday, serverOrders);
+    const wanted = new Set(orderIds);
+    const stampField = nextStatus === "ready" ? "readyAt" : "dispatchedAt";
+    const nowIso = new Date().toISOString();
+    const changed = [];
+    const updated = base.map(o => {
+      if (!wanted.has(o.id) || o.status !== prevStatus) return o;
+      const next = { ...o, status: nextStatus };
+      if (!next[stampField]) next[stampField] = nowIso;
+      changed.push(next);
+      return next;
+    });
+    setTodayOrders(updated);
+    if (!changed.length) return 0;
+    await writeOrders(changed);
+    const body = nextStatus === "ready"
+      ? "Your order is ready and will be dispatched shortly 📦"
+      : "Your order is out for delivery 🛵";
+    changed.forEach(o => sendOrderStatusPush(o.phone, "Homely Tiffins", body));
+    return changed.length;
+  }, [todayOrders]);
+
   const handleRejectOrder = useCallback(async (orderId) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
     const today = todayStr();
@@ -9898,6 +10263,7 @@ export default function App() {
           onMarkContactRead={handleMarkContactRead}
           onDeleteContactMessage={handleDeleteContactMessage}
           onAdvanceOrder={handleAdvanceOrder}
+          onAdvanceOrders={handleAdvanceOrders}
           onRejectOrder={handleRejectOrder}
           onLogout={handleOwnerLogout}
           onAddCredit={handleAddCredit}
