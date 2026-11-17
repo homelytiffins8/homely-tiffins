@@ -5902,8 +5902,10 @@ function BatchBoard({ orders, onAdvanceMany }) {
     update(cooking.id, b => ({ ...b, orderIds: [...b.orderIds, orderId], added: [...(b.added || []), orderId] }));
   const skipForNext = (orderId) =>
     update(cooking.id, b => ({ ...b, skipped: [...(b.skipped || []), orderId] }));
-  const togglePacked = (orderId) =>
+  const togglePacked = (orderId) => {
+    setWarn("");
     update(cooking.id, b => ({ ...b, packed: { ...b.packed, [orderId]: !b.packed[orderId] } }));
+  };
 
   // Orders of a batch as they are right now (rejected/vanished ones dropped).
   const liveOrders = (b) => b.orderIds.map(id => byId.get(id)).filter(o => o && o.status !== "rejected");
