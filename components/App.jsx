@@ -5942,15 +5942,28 @@ function BatchBoard({ orders, onAdvanceMany }) {
                         <div style={{ fontSize: 12, fontWeight: 600, color: C.inkMid, marginTop: 2 }}>🚪 {o.deliveryInstructions.trim()}</div>
                       )}
                     </div>
-                    <button
-                      onClick={() => !already && togglePacked(o.id)}
-                      aria-label={done ? "Mark not packed" : "Mark packed"}
-                      style={{
-                        width: 36, height: 36, flex: "none", borderRadius: 8, cursor: already ? "default" : "pointer",
-                        border: `2px solid ${done ? C.green : C.border}`, background: done ? C.greenLight : C.white,
-                        color: C.green, fontSize: 16, fontWeight: 900, padding: 0,
-                      }}
-                    >{done ? "✓" : ""}</button>
+                    <div style={{ display: "flex", gap: 6, flex: "none" }}>
+                      {/* Same KOT slip as the Orders tab's "Print KOT" button. */}
+                      <button
+                        onClick={() => printKOT(o)}
+                        aria-label="Print KOT"
+                        title="Print KOT"
+                        style={{
+                          width: 36, height: 36, flex: "none", borderRadius: 8, cursor: "pointer",
+                          border: `2px solid ${C.border}`, background: C.white,
+                          fontSize: 16, padding: 0,
+                        }}
+                      >🖨</button>
+                      <button
+                        onClick={() => !already && togglePacked(o.id)}
+                        aria-label={done ? "Mark not packed" : "Mark packed"}
+                        style={{
+                          width: 36, height: 36, flex: "none", borderRadius: 8, cursor: already ? "default" : "pointer",
+                          border: `2px solid ${done ? C.green : C.border}`, background: done ? C.greenLight : C.white,
+                          color: C.green, fontSize: 16, fontWeight: 900, padding: 0,
+                        }}
+                      >{done ? "✓" : ""}</button>
+                    </div>
                   </div>
                 );
               })}
