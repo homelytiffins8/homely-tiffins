@@ -1027,41 +1027,6 @@ function mergeOrders(base, incoming) {
 // Tower list N-1 to N-28
 const TOWERS = Array.from({ length: 28 }, (_, i) => `N-${i + 1}`);
 
-// Kitchen prep tower groups (used by the floating "Prepare Now" tabs).
-// "all" = every preparing order. The three ranges split the society so the
-// kitchen can prepare tower-by-tower. The last group runs to 28 so that no
-// tower (incl. N-28) is ever left out of a group.
-const PREP_GROUPS = [
-  { key: "all", label: "All",       short: "All",  min: 1,  max: 28 },
-  { key: "g1",  label: "N-1 → 7",   short: "1–7",  min: 1,  max: 7  },
-  { key: "g2",  label: "N-8 → 17",  short: "8–17", min: 8,  max: 17 },
-  { key: "g3",  label: "N-18 → 28", short: "18–28",min: 18, max: 28 },
-];
-
-// Extract the numeric part of a tower string like "N-14" → 14. Returns 0 if none.
-function towerNum(t) {
-  const m = /(\d+)/.exec(t || "");
-  return m ? parseInt(m[1], 10) : 0;
-}
-
-// Build the pooled + separate prep lists for a set of preparing orders.
-// Orders WITHOUT special instructions are pooled together by item name.
-// Orders WITH special instructions are kept separate and never merged.
-function computePrep(orders) {
-  const pool = {};
-  const separate = [];
-  orders.forEach(o => {
-    const hasNote = o.specialInstructions && o.specialInstructions.trim().length > 0;
-    if (hasNote) {
-      separate.push({ orderId: o.id, items: o.items, note: o.specialInstructions.trim() });
-    } else {
-      o.items.forEach(i => { pool[i.name] = (pool[i.name] || 0) + i.qty; });
-    }
-  });
-  const pooled = Object.entries(pool).sort((a, b) => b[1] - a[1]);
-  return { pooled, separate };
-}
-
 // ─────────────────────────────────────────────
 // STAR RATING COMPONENTS
 // ─────────────────────────────────────────────
@@ -5578,28 +5543,6 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
   const selectedConfig = STATUS_CONFIG.find(s => s.key === selectedStatus);
   const filteredOrders = selectedStatus ? getFilteredOrders(selectedStatus) : [];
 
-  // ── Kitchen prep summary (Preparing tab only) ──
-  // The floating panel now has 4 tabs: All + three tower ranges. For each tab
-  // we compute a pooled + separate prep list over just that group's orders.
-  const [prepOpen, setPrepOpen] = useState(true);
-  const [prepGroup, setPrepGroup] = useState("all");
-  // Per-group data: { key, label, short, count, pooled, separate }
-  let prepGroupData = [];
-  if (selectedStatus === "preparing") {
-    prepGroupData = PREP_GROUPS.map(g => {
-      const groupOrders = g.key === "all"
-        ? filteredOrders
-        : filteredOrders.filter(o => {
-            const n = towerNum(o.tower);
-            return n >= g.min && n <= g.max;
-          });
-      const { pooled, separate } = computePrep(groupOrders);
-      return { ...g, count: groupOrders.length, pooled, separate };
-    });
-  }
-  const activeGroup =
-    prepGroupData.find(g => g.key === prepGroup) || prepGroupData[0];
-
   return (
     <div style={{ padding: "20px 0" }}>
       {/* Top stats row */}
@@ -5643,7 +5586,7 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
 
       {/* Order list for selected status */}
       {selectedStatus && (
-        <div className="slide-in" style={selectedStatus === "preparing" && filteredOrders.length > 0 ? { paddingBottom: 64 } : undefined}>
+        <div className="slide-in">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <h3 style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>
               {selectedConfig.emoji} {selectedConfig.label}
@@ -5660,131 +5603,6 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
           ) : (
             filteredOrders.map(o => <OrderCard key={o.id} order={o} onAdvance={onAdvance} onReject={onReject} now={now} />)
           )}
-
-          {/* ── Floating kitchen prep summary (Preparing tab only) ── */}
-          {/* Right-anchored panel with 4 tabs: All + three tower ranges. */}
-          {selectedStatus === "preparing" && filteredOrders.length > 0 && activeGroup && (
-            <div style={{
-              position: "fixed",
-              bottom: 16,
-              right: 16,
-              left: 16,
-              marginLeft: "auto",
-              width: "auto",
-              maxWidth: 380,
-              zIndex: 50,
-            }}>
-              <div style={{
-                background: C.white,
-                borderRadius: 16,
-                boxShadow: "0 6px 24px rgba(0,0,0,0.22)",
-                border: `2px solid ${C.saffron}`,
-                overflow: "hidden",
-              }}>
-                {/* Header — toggles the whole panel open/closed */}
-                <button
-                  onClick={() => setPrepOpen(v => !v)}
-                  style={{
-                    width: "100%",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "12px 16px",
-                    background: C.saffron,
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span style={{ fontSize: 14, fontWeight: 800, color: C.white }}>
-                    👨‍🍳 Prepare Now ({filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""})
-                  </span>
-                  <span style={{ fontSize: 14, color: C.white, fontWeight: 700 }}>{prepOpen ? "▾" : "▴"}</span>
-                </button>
-
-                {prepOpen && (
-                  <>
-                    {/* Tower-group tabs (right-aligned) */}
-                    <div style={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      gap: 4,
-                      padding: "8px 8px 0",
-                      background: C.saffronLight,
-                      flexWrap: "wrap",
-                    }}>
-                      {prepGroupData.map(g => {
-                        const isActive = g.key === activeGroup.key;
-                        return (
-                          <button
-                            key={g.key}
-                            onClick={() => setPrepGroup(g.key)}
-                            title={g.label}
-                            style={{
-                              flex: "1 1 0",
-                              minWidth: 0,
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              gap: 1,
-                              padding: "6px 4px",
-                              borderRadius: "8px 8px 0 0",
-                              border: `1.5px solid ${isActive ? C.saffron : C.border}`,
-                              borderBottom: isActive ? `1.5px solid ${C.white}` : `1.5px solid ${C.border}`,
-                              background: isActive ? C.white : "transparent",
-                              cursor: "pointer",
-                              marginBottom: -1.5,
-                            }}
-                          >
-                            <span style={{
-                              fontSize: 12,
-                              fontWeight: 800,
-                              color: isActive ? C.saffron : C.inkMid,
-                              whiteSpace: "nowrap",
-                            }}>{g.short}</span>
-                            <span style={{
-                              fontSize: 10,
-                              fontWeight: 700,
-                              color: isActive ? C.saffron : C.inkLight,
-                            }}>{g.count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Active tab's compiled list */}
-                    <div style={{ padding: "12px 16px 14px", maxHeight: "45vh", overflowY: "auto", borderTop: `1.5px solid ${C.border}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.inkMid, marginBottom: 8 }}>
-                        {activeGroup.label} · {activeGroup.count} order{activeGroup.count !== 1 ? "s" : ""}
-                      </div>
-
-                      {activeGroup.pooled.map(([name, qty]) => (
-                        <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.border}` }}>
-                          <span style={{ fontSize: 14, color: C.ink, fontWeight: 600 }}>{name}</span>
-                          <span style={{ fontSize: 15, color: C.saffron, fontWeight: 900 }}>×{qty}</span>
-                        </div>
-                      ))}
-
-                      {activeGroup.separate.map(sep => (
-                        <div key={sep.orderId} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                          {sep.items.map(i => (
-                            <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                              <span style={{ fontSize: 14, color: C.ink, fontWeight: 600 }}>{i.name}</span>
-                              <span style={{ fontSize: 15, color: C.saffron, fontWeight: 900 }}>×{i.qty}</span>
-                            </div>
-                          ))}
-                          <div style={{ fontSize: 11, color: "#E65100", fontWeight: 700, marginTop: 2 }}>
-                            📝 {sep.note}
-                          </div>
-                        </div>
-                      ))}
-
-                      {activeGroup.pooled.length === 0 && activeGroup.separate.length === 0 && (
-                        <p style={{ fontSize: 12, color: C.inkLight, textAlign: "center", padding: "8px 0" }}>Nothing to prepare here</p>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -5797,10 +5615,15 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
   );
 }
 
-// ─────────────────────────────────────────────
+// ═════════════════════════════════════════════
+// TEMP-BATCH-BOARD START — temporary feature, owner will remove it later.
+// To remove: delete everything between TEMP-BATCH-BOARD START and END
+// below, plus every other line tagged "TEMP-BATCH-BOARD" in this file
+// (tab entry, tab render, BackendApp prop, handleAdvanceOrders, its prop).
+// ═════════════════════════════════════════════
 // BATCH BOARD  (kitchen: cook + send tiffins one tower group at a time)
 // ─────────────────────────────────────────────
-// Shows only accepted (Preparing) orders, grouped by PREP_GROUPS. The kitchen
+// Shows only accepted (Preparing) orders, grouped by BATCH_GROUPS. The kitchen
 // locks a group into a numbered batch, ticks tiffins as they're packed, then
 // "Mark batch ready" moves every order in it to Ready, and "Dispatch batch"
 // moves them to Dispatched — through the same status write the Orders tab
@@ -5812,7 +5635,35 @@ function OrderDashboard({ todayOrders, onAdvance, onReject }) {
 // in this device's localStorage for today only — it's a kitchen-laptop tool.
 // Order STATUSES are always the real ones from the orders table.
 const BATCH_STORE_KEY = "ht_kitchen_batches_v1";
-const BATCH_GROUPS = PREP_GROUPS.filter(g => g.key !== "all");
+// The society's three delivery routes (last group runs to 28 so no tower is left out).
+const BATCH_GROUPS = [
+  { key: "g1", label: "N-1 → 7",   min: 1,  max: 7  },
+  { key: "g2", label: "N-8 → 17",  min: 8,  max: 17 },
+  { key: "g3", label: "N-18 → 28", min: 18, max: 28 },
+];
+
+// "N-14" → 14. Returns 0 if none.
+function towerNum(t) {
+  const m = /(\d+)/.exec(t || "");
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+// Pooled + separate cook lists for a set of orders. Orders WITHOUT special
+// instructions are pooled by item name; orders WITH them stay separate.
+function computePrep(orders) {
+  const pool = {};
+  const separate = [];
+  orders.forEach(o => {
+    const hasNote = o.specialInstructions && o.specialInstructions.trim().length > 0;
+    if (hasNote) {
+      separate.push({ orderId: o.id, items: o.items, note: o.specialInstructions.trim() });
+    } else {
+      o.items.forEach(i => { pool[i.name] = (pool[i.name] || 0) + i.qty; });
+    }
+  });
+  const pooled = Object.entries(pool).sort((a, b) => b[1] - a[1]);
+  return { pooled, separate };
+}
 
 function batchGroupOf(tower) {
   const n = towerNum(tower);
@@ -6168,6 +6019,9 @@ function BatchBoard({ orders, onAdvanceMany }) {
     </div>
   );
 }
+// ═════════════════════════════════════════════
+// TEMP-BATCH-BOARD END
+// ═════════════════════════════════════════════
 
 // ─────────────────────────────────────────────
 // ANALYTICS PANEL
@@ -8221,7 +8075,7 @@ function PinGate({ label, onUnlock }) {
   );
 }
 
-function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, kitchenPause = null, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onAdvanceOrders, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onPauseKitchen, onExtendPause, onResumeKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
+function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrders, ordersHistory, customers, credit, kitchenOpen, kitchenPause = null, poll, pollResponses, promoCodes, referralConfig, onSaveMenu, onSavePlanConfig, onSaveContactInfo, onMarkContactRead, onDeleteContactMessage, onAdvanceOrder, onAdvanceOrders /* TEMP-BATCH-BOARD */, onRejectOrder, onLogout, onAddCredit, onDeleteCreditEntry, onResetCreditCustomer, onDeleteCreditCustomer, onReconcileCredit, onToggleKitchen, onPauseKitchen, onExtendPause, onResumeKitchen, onResetAllData, onSavePoll, onTogglePoll, onClearPollResponses, onSavePromoCodes, onSaveReferralConfig }) {
   const [tab, setTabRaw] = useState("orders");
   const [openCustomerId, setOpenCustomerId] = useState(null); // lets reports deep-link into a customer profile
   // PIN gate for credit / analytics / customers: the unlock applies to ONE tab
@@ -8256,7 +8110,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
   const unreadContactCount = (contactMessages || []).filter(m => !m.read).length;
   const tabs = [
     { id: "orders",   label: "📦 Orders" },
-    { id: "batches",  label: "🧺 Batch board" },
+    { id: "batches",  label: "🧺 Batch board" }, // TEMP-BATCH-BOARD
     { id: "menu",     label: "🍽️ Menu" },
     { id: "plans",    label: "📋 Plans" },
     { id: "credit",   label: "📒 Credit" },
@@ -8369,7 +8223,7 @@ function BackendApp({ menu, planConfig, contactInfo, contactMessages, todayOrder
       </div>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "0 16px 40px" }}>
         {tab === "orders"    && <OrderDashboard todayOrders={dashboardOrders} onAdvance={onAdvanceOrder} onReject={onRejectOrder} />}
-        {tab === "batches"   && <BatchBoard orders={dashboardOrders} onAdvanceMany={onAdvanceOrders} />}
+        {tab === "batches"   && <BatchBoard orders={dashboardOrders} onAdvanceMany={onAdvanceOrders} />}{/* TEMP-BATCH-BOARD */}
         {tab === "menu"      && <MenuEditor menu={menu} onSave={onSaveMenu} />}
         {tab === "plans"     && <PlanMenuEditor planConfig={planConfig} onSave={onSavePlanConfig} />}
         {tab === "contact"   && <ContactCenter contactInfo={contactInfo} messages={contactMessages} onSave={onSaveContactInfo} onMarkRead={onMarkContactRead} onDelete={onDeleteContactMessage} />}
@@ -9296,6 +9150,7 @@ export default function App() {
     }
   }, [todayOrders, referralConfig]);
 
+  // TEMP-BATCH-BOARD START (handleAdvanceOrders — only the Batch board uses it)
   // Bulk status move for the Batch board: Preparing → Ready, or
   // Ready → Dispatched, for many orders in ONE fetch/merge/write. Same rules
   // as handleAdvanceOrder (server-merged truth, never moves an order
@@ -9328,6 +9183,7 @@ export default function App() {
     changed.forEach(o => sendOrderStatusPush(o.phone, "Homely Tiffins", body));
     return changed.length;
   }, [todayOrders]);
+  // TEMP-BATCH-BOARD END
 
   const handleRejectOrder = useCallback(async (orderId) => {
     // ── Concurrency-safe write (fetch → merge → validate → write) ──
@@ -9608,7 +9464,7 @@ export default function App() {
           onMarkContactRead={handleMarkContactRead}
           onDeleteContactMessage={handleDeleteContactMessage}
           onAdvanceOrder={handleAdvanceOrder}
-          onAdvanceOrders={handleAdvanceOrders}
+          /* TEMP-BATCH-BOARD */ onAdvanceOrders={handleAdvanceOrders}
           onRejectOrder={handleRejectOrder}
           onLogout={handleOwnerLogout}
           onAddCredit={handleAddCredit}
